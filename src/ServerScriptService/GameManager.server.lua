@@ -15,6 +15,7 @@ local RequestRematch = Remotes:WaitForChild("RequestRematch")
 -- Подключаем другие модули
 local HeroSelector = require(ServerScriptService:WaitForChild("HeroSelector.server"))
 local CombatSystem = require(ServerScriptService:WaitForChild("CombatSystem.server"))
+local DataStore = require(ServerScriptService:WaitForChild("DataStore.server"))
 
 -- НАСТРОЙКИ МАТЧА
 local MATCH_DURATION = 90  -- 1:30 секунд
@@ -104,11 +105,13 @@ local function endMatch(reason)
 	for _, player in ipairs(GameState.matchPlayers) do
 		local isWinner = (player.UserId == winnerId)
 		local rpChange = isWinner and 25 or -15
-		local currentRp = 1000 -- TODO: загружать из DataStore
-		local newRp = math.max(0, currentRp + rpChange)
-
+		if isWinner then
+			DataStore.recordWin(player.UserId)
+		else
+			DataStore.recordLoss(player.UserId)
+		endange)
 		local data = {
-			rp = newRp,
+			rp = newRpDataStore.getRP(player.UserId)
 			rpChange = rpChange,
 			kills = 0,  -- TODO: трекать реальные киллы
 			damage = 0, -- TODO: трекать урон
