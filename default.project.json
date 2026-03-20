@@ -1,0 +1,50 @@
+{
+  "name": "AnimeArenaBlitz",
+  "tree": {
+    "$className": "DataModel",
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "AnimeArena": {
+        "$path": "src/ServerScriptService"
+      }
+    },
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "AnimeArena": {
+        "$path": "src/ReplicatedStorage"
+      }
+    },
+
+    "StarterGui": {
+      "$className": "StarterGui",
+      "AnimeArena": {
+        "$path": "src/StarterGui"
+      }
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterCharacterScripts": {
+        "$className": "StarterCharacterScripts",
+        "AnimeArena": {
+          "$path": "src/StarterCharacterScripts"
+        }
+      },
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "AnimeArena": {
+          "$path": "src/StarterPlayerScripts"
+        }
+      }
+    },
+
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": {
+        "Gravity": 196.2
+      }
+    }
+  }
+}
