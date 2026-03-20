@@ -2,6 +2,7 @@
 -- Инициализация RemoteEvents и RemoteFunctions для Anime Arena: Blitz Mode
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+print("[INIT] Starting RemoteEvents initialization...")
 
 local Remotes = Instance.new("Folder")
 Remotes.Name = "Remotes"
@@ -38,5 +39,9 @@ makeRemote("UpdateScoreboard")
 -- Rank
 makeRemote("ShowRankScreen")
 makeRemote("RequestRematch")
+
+print("[INIT] All RemoteEvents created successfully!")
+print("[INIT] Remotes folder:", Remotes)
+print("[INIT] Remotes children:", Remotes:GetChildren())
 
 print("[AnimeArena] Remotes initialized:", #Remotes:GetChildren())
