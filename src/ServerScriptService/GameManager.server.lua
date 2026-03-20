@@ -109,8 +109,8 @@ local function endMatch(reason)
 			DataStore.recordWin(player.UserId)
 		else
 			DataStore.recordLoss(player.UserId)
-		end		local data = {
-			rp = newRpDataStore.getRP(player.UserId)
+		end
+		local data = {			rp = newRpDataStore.getRP(player.UserId)
 			rpChange = rpChange,
 			kills = 0,  -- TODO: трекать реальные киллы
 			damage = 0, -- TODO: трекать урон
