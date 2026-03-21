@@ -1,5 +1,5 @@
 -- HUD.client.lua | Anime Arena: Blitz Mode
--- Production HUD: HP bar, skills cooldowns, ult charge, timer, kill feed, respawn countdown
+-- Production HUD: HP bar, skills cooldowns, ult charge, timer, kill feed, respawn countdown, mode indicator
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,20 +9,20 @@ local player = Players.LocalPlayer
 local PlayerGui = player:WaitForChild("PlayerGui")
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local UpdateHP        = Remotes:WaitForChild("UpdateHP")
-local UpdateHUD       = Remotes:WaitForChild("UpdateHUD")
-local UltCharge       = Remotes:WaitForChild("UltCharge")
-local UpdateTimer     = Remotes:WaitForChild("RoundTimer")
-local ShowKillFeed    = Remotes:WaitForChild("ShowKillFeed")
+local UpdateHP			= Remotes:WaitForChild("UpdateHP")
+local UpdateHUD			= Remotes:WaitForChild("UpdateHUD")
+local UltCharge			= Remotes:WaitForChild("UltCharge")
+local UpdateTimer		= Remotes:WaitForChild("RoundTimer")
+local ShowKillFeed		= Remotes:WaitForChild("ShowKillFeed")
 local ShowNotification= Remotes:WaitForChild("ShowNotification")
-local TakeDamage      = Remotes:WaitForChild("TakeDamage")
-local PlayerDied      = Remotes:WaitForChild("PlayerDied")
+local TakeDamage		= Remotes:WaitForChild("TakeDamage")
+local PlayerDied		= Remotes:WaitForChild("PlayerDied")
 
 -- === Create ScreenGui ===
 local hudGui = Instance.new("ScreenGui")
 hudGui.Name = "HUD"
 hudGui.ResetOnSpawn = false
-hudGui.Enabled = false  -- enable on match start
+hudGui.Enabled = false -- enable on match start
 hudGui.Parent = PlayerGui
 
 local function makeFrame(parent, size, position, bg, transparency)
@@ -49,6 +49,12 @@ local function makeText(parent, size, position, text, color, scaled)
 	return t
 end
 
+-- === Mode Indicator (top left) ===
+local modeIndicator = makeText(hudGui, UDim2.new(0.2, 0, 0, 40), UDim2.new(0.02, 0, 0.02, 0), "", Color3.fromRGB(255, 255, 255), true)
+modeIndicator.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+modeIndicator.BackgroundTransparency = 0.3
+modeIndicator.Visible = false
+
 -- === HP Bar (bottom center) ===
 local hpBg = makeFrame(hudGui, UDim2.new(0.3, 0, 0, 30), UDim2.new(0.35, 0, 0.88, 0), Color3.fromRGB(30, 30, 40), 0.3)
 local hpBar = makeFrame(hpBg, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), Color3.fromRGB(220, 50, 50), 0)
@@ -57,7 +63,8 @@ local hpText = makeText(hpBg, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), "100
 -- === Skills Cooldowns (bottom right) ===
 local skillsFrame = makeFrame(hudGui, UDim2.new(0.25, 0, 0.12, 0), UDim2.new(0.74, 0, 0.82, 0), Color3.fromRGB(20, 20, 30), 0.5)
 local skillSlots = {}
-for i = 1, 4 do  -- 3 skills + 1 ult
+
+for i = 1, 4 do -- 3 skills + 1 ult
 	local slot = makeFrame(skillsFrame, UDim2.new(0.22, 0, 0.7, 0), UDim2.new(0.02 + (i-1)*0.24, 0, 0.15, 0), Color3.fromRGB(60, 60, 80), 0.2)
 	local cd = makeText(slot, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), "", Color3.fromRGB(255, 255, 100), true)
 	local overlay = makeFrame(slot, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), Color3.fromRGB(0, 0, 0), 0.7)
@@ -139,8 +146,22 @@ local function showRespawn(seconds)
 	respawnLabel.Visible = false
 end
 
--- === Remote Event Handlers ===
+-- === Update Mode Indicator ===
+local function setModeIndicator(mode)
+	if mode == "OneHit" then
+		modeIndicator.Text = "⚡ ONE HIT MODE"
+		modeIndicator.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+		modeIndicator.Visible = true
+	elseif mode == "Normal" then
+		modeIndicator.Text = "NORMAL MODE"
+		modeIndicator.BackgroundColor3 = Color3.fromRGB(50, 120, 200)
+		modeIndicator.Visible = true
+	else
+		modeIndicator.Visible = false
+	end
+end
 
+-- === Remote Event Handlers ===
 UpdateHP.OnClientEvent:Connect(function(hp, maxHp)
 	updateHP(hp, maxHp)
 end)
@@ -208,13 +229,15 @@ player.CharacterAdded:Connect(onCharacterAdded)
 
 -- === Enable HUD on match start ===
 local MatchStart = Remotes:WaitForChild("MatchStart")
-MatchStart.OnClientEvent:Connect(function()
+MatchStart.OnClientEvent:Connect(function(mode)
 	hudGui.Enabled = true
+	setModeIndicator(mode)
 end)
 
 local MatchEnd = Remotes:WaitForChild("MatchEnd")
 MatchEnd.OnClientEvent:Connect(function()
 	hudGui.Enabled = false
+	modeIndicator.Visible = false
 end)
 
 print("[HUD] Initialized successfully")
