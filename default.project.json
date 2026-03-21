@@ -9,8 +9,11 @@
 
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "Remotes": {
+      "Modules": {
         "$path": "src/ReplicatedStorage"
+      },
+      "Remotes": {
+        "$className": "Folder"
       }
     },
 
