@@ -7,9 +7,9 @@ local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 
-local Shared = ReplicatedStorage:WaitForChild("AnimeArena")
-local Config = require(Shared:WaitForChild("Config"))
-local Remotes = Shared:WaitForChild("Remotes")
+--local Shared = ReplicatedStorage:WaitForChild("AnimeArena")
+--local Config = require(Shared:WaitForChild("Config"))
+--local Remotes = Shared:WaitForChild("Remotes")
 
 local ClientState = {
     Hero = nil,
