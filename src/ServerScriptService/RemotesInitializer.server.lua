@@ -28,6 +28,7 @@ makeRemote("UseAbility")
 makeRemote("TakeDamage")
 makeRemote("PlayerDied")
 makeRemote("UpdateHP")
+makeRemote("UltCharge")
 
 -- Match
 makeRemote("MatchStart")
