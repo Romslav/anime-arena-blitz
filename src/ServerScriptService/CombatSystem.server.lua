@@ -1,8 +1,9 @@
 -- CombatSystem.server.lua
--- Боевая система: обработка атак, HP, смерть, статусы
+-- Боевая система: обработка атак, HP, смерть, статусы, режимы
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local StatusEffects = require(script.Parent.StatusEffects)
 local SkillHandlers = require(script.Parent.SkillHandlers)
 
@@ -21,8 +22,16 @@ local cooldowns = {}
 local Characters = require(ReplicatedStorage:WaitForChild("Characters"))
 SkillHandlers.Init(Characters)
 
--- === Логика боя ===
+-- === Хелперы: получаем системы ===
+local function getGameManager()
+	return _G.GameManager
+end
 
+local function getGameModeModifiers()
+	return _G.GameModeModifiers
+end
+
+-- === Логика боя ===
 local function dealDamage(attacker, victim, amount, reason)
 	local state = matchState[victim.UserId]
 	if not state or not state.alive then return end
@@ -34,6 +43,13 @@ local function dealDamage(attacker, victim, amount, reason)
 	-- Модификаторы атакующего
 	local attackerMultiplier = StatusEffects.GetDamageMultiplier(attacker.UserId)
 	finalDamage = finalDamage * attackerMultiplier
+	
+	-- GameModeModifiers damage multiplier
+	local modifiers = getGameModeModifiers()
+	if modifiers and attacker.Character then
+		local dmgMult = modifiers.GetDamageMultiplier(attacker.Character)
+		finalDamage = finalDamage * dmgMult
+	end
 	
 	local attackerState = matchState[attacker.UserId]
 	if attackerState then
@@ -54,10 +70,18 @@ local function dealDamage(attacker, victim, amount, reason)
 		PlayerDied:FireAllClients(victim.UserId, attacker.UserId)
 		StatusEffects.ClearPlayer(victim.UserId)
 		
-		-- Проверка победы
+		-- Вызов GameManager.OnKill для kill feed и проверки win condition
+		local gm = getGameManager()
+		if gm and gm.OnKill then
+			gm.OnKill(attacker.UserId, victim.UserId, state.matchId)
+		end
+		
+		-- Проверка победы (fallback для Normal-режима без kill limit)
 		local alivePlayers = {}
 		for uid, s in pairs(matchState) do
-			if s.alive then table.insert(alivePlayers, uid) end
+			if s.alive and s.matchId == state.matchId then 
+				table.insert(alivePlayers, uid) 
+			end
 		end
 		if #alivePlayers <= 1 then
 			MatchEnd:FireAllClients(alivePlayers[1] or 0)
@@ -67,6 +91,7 @@ end
 
 -- Публичный метод для StatusEffects (DoT)
 local CombatSystem = {}
+
 function CombatSystem.dealDamageToPlayer(userId, amount, reason)
 	local victim = Players:GetPlayerByUserId(userId)
 	if not victim then return end
@@ -76,7 +101,6 @@ function CombatSystem.dealDamageToPlayer(userId, amount, reason)
 end
 
 -- === Обработка скиллов ===
-
 UseSkill.OnServerEvent:Connect(function(player, skillKey)
 	local state = matchState[player.UserId]
 	if not state or not state.alive then return end
@@ -101,7 +125,15 @@ UseSkill.OnServerEvent:Connect(function(player, skillKey)
 	
 	if not skillInfo then return end
 	
-	if tick() - lastUsed < skillInfo.cooldown then
+	-- GameModeModifiers cooldown multiplier
+	local cooldownTime = skillInfo.cooldown
+	local modifiers = getGameModeModifiers()
+	if modifiers and player.Character then
+		local cdMult = modifiers.GetCooldownMultiplier(player.Character)
+		cooldownTime = cooldownTime * cdMult
+	end
+	
+	if tick() - lastUsed < cooldownTime then
 		return
 	end
 	
@@ -142,8 +174,7 @@ function CombatSystem.defaultSkillHit(player, skillData)
 end
 
 -- === Системные функции ===
-
-function CombatSystem.initPlayer(player, heroData)
+function CombatSystem.initPlayer(player, heroData, matchId)
 	local maxHp = heroData and heroData.hp or 100
 	matchState[player.UserId] = {
 		hp = maxHp,
@@ -152,9 +183,14 @@ function CombatSystem.initPlayer(player, heroData)
 		alive = true,
 		kills = 0,
 		damage = 0,
+		matchId = matchId or "default",
 	}
 	cooldowns[player.UserId] = {}
 	StatusEffects.ClearPlayer(player.UserId)
+end
+
+function CombatSystem.getState(userId)
+	return matchState[userId]
 end
 
 Players.PlayerRemoving:Connect(function(player)
@@ -162,5 +198,7 @@ Players.PlayerRemoving:Connect(function(player)
 	cooldowns[player.UserId] = nil
 	StatusEffects.ClearPlayer(player.UserId)
 end)
+
+_G.CombatSystem = CombatSystem
 
 return CombatSystem
