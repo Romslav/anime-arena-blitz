@@ -199,3 +199,37 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 return CharacterService
+
+
+-- === Apply Game Mode to Player (for OneHit Mode integration) ===
+function CharacterService.SpawnWithMode(player, heroData, gameMode)
+	if not player or not heroData then return end
+
+	-- Store selection
+	selectedHeroes[player.UserId] = heroData
+
+	local function onCharacterAdded(character)
+		task.wait(0.1)
+		
+		-- Apply base hero stats
+		CharacterService.ApplyStats(character, heroData)
+
+		-- Apply game mode modifiers (OneHit, Normal, etc.)
+		if _G.GameModeModifiers and gameMode then
+			_G.GameModeModifiers.ApplyToPlayer(player, gameMode, heroData)
+		end
+
+		-- Notify clients
+		CharacterSpawned:FireAllClients(player.UserId, heroData.id, heroData.name)
+
+		-- Init CombatSystem
+		if _G.CombatSystem then
+			_G.CombatSystem.initPlayer(player, heroData)
+		end
+	end
+
+	if player.Character then
+		onCharacterAdded(player.Character)
+	end
+	player.CharacterAdded:Connect(onCharacterAdded)
+end
