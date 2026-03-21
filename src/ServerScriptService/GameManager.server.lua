@@ -113,12 +113,11 @@ local function endMatch(reason)
 		else
 			DataStore.recordLoss(player.UserId)
 		end
-		local data = {			rp = newRpDataStore.getRP(player.UserId),
+		local data = {			rp = DataStore.getRP(player.UserId),
 			rpChange = rpChange,
 			kills = 0,  -- TODO: трекать реальные киллы
 			damage = 0, -- TODO: трекать урон
-			isWinner = isWinner,
-		}
+			local data = { rp = DataStore.getRP(player.UserId),		}
 		ShowRankScreen:FireClient(player, data)
 	end
 
