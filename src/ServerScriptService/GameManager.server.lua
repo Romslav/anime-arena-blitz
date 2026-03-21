@@ -117,7 +117,8 @@ local function endMatch(reason)
 			rpChange = rpChange,
 			kills = 0,  -- TODO: трекать реальные киллы
 			damage = 0, -- TODO: трекать урон
-			local data = { rp = DataStore.getRP(player.UserId),		}
+							isWinner = isWinner,
+						}
 		ShowRankScreen:FireClient(player, data)
 	end
 
