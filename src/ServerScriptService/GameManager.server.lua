@@ -17,6 +17,9 @@ local RequestRematch = Remotes:WaitForChild("RequestRematch")
 -- local HeroSelector = require(ServerScriptService:WaitForChild("HeroSelector.server"))
 -- local CombatSystem = require(ServerScriptService:WaitForChild("CombatSystem.server"))
 -- local DataStore = require(ServerScriptService:WaitForChild("DataStore.server"))
+
+-- Ждем пока HeroSelector инициализируется
+while not _G.HeroSelector do task.wait() end
 -- НАСТРОЙКИ МАТЧА
 local MATCH_DURATION = 90  -- 1:30 секунд
 local MIN_PLAYERS = 2      -- минимум игроков для старта
