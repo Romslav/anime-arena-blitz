@@ -6,55 +6,65 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
-
---local Shared = ReplicatedStorage:WaitForChild("AnimeArena")
---local Config = require(Shared:WaitForChild("Config"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local VFXManager = require(script.Parent:WaitForChild("VFXManager"))
+
 local ClientState = {
-	Hero = nil,
+	Hero = "FlameRonin", -- Default for testing
 	UltCharge = 0,
-	Stats = {
-		damageDealt = 0, damageTaken = 0,
-		dodges = 0, parries = 0, combos = 0,
-	}
+	IsStunned = false,
 }
 
 local KEYBINDS = {
-	Skill1   = Enum.KeyCode.Q,
-	Skill2   = Enum.KeyCode.E,
-	Skill3   = Enum.KeyCode.R,
-	Ultimate = Enum.KeyCode.F,
-	Dodge    = Enum.KeyCode.LeftShift,
+	[Enum.KeyCode.Q] = "Q",
+	[Enum.KeyCode.E] = "E",
+	[Enum.KeyCode.R] = "R",
 }
 
-UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then return end
-	for skillName, keyCode in pairs(KEYBINDS) do
-		if input.KeyCode == keyCode then
-			Remotes.UseSkill:FireServer(skillName, ClientState.Hero)
-			break
-		end
+-- === Обработка Ввода ===
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	
+	local skillKey = KEYBINDS[input.KeyCode]
+	if skillKey then
+		-- Отправляем запрос на сервер
+		Remotes.UseSkill:FireServer(skillKey)
+		print("[Client] Requested skill:", skillKey)
 	end
 end)
 
-Remotes.RoundStart.OnClientEvent:Connect(function(data)
-	ClientState.CurrentRound = data
-	print("[Client] Round Start - Mode:", data and data.mode or "?")
+-- === Обработка Событий от Сервера ===
+
+-- Визуализация использования скиллов (своих и чужих)
+Remotes.SkillUsed.OnClientEvent:Connect(function(userId, skillKey)
+	-- Тут мы могли бы получить heroId игрока из общей таблицы или атрибутов
+	-- Для MVP предположим, что мы знаем героев (или добавим в эвент позже)
+	VFXManager.PlaySkillVFX(userId, skillKey, "FlameRonin") 
 end)
 
-Remotes.RoundEndRoundStart.OnClientEvent:Connect(function(results)
-	local myResult = results[tostring(LocalPlayer.UserId)]
-	if myResult then
-		print("[Client] Round End - Score:", myResult.score, "Rank:", myResult.rank)
+-- Визуализация статус-эффектов (Burn, Stun и т.д.)
+Remotes.UpdateEffect.OnClientEvent:Connect(function(effectType, isActive, duration)
+	VFXManager.UpdateStatusEffect(LocalPlayer.UserId, effectType, isActive, duration)
+	
+	if effectType == "Stun" then
+		ClientState.IsStunned = isActive
 	end
 end)
 
-Remotes.UltCharge.OnClientEvent:Connect(function(charge)
-	ClientState.UltCharge = charge
+-- Обновление HP (в HUD)
+Remotes.UpdateHP.OnClientEvent:Connect(function(currentHp, maxHp)
+	-- Вызов функции HUD
+	local HUD = require(script.Parent:WaitForChild("HUD"))
+	if HUD and HUD.UpdateHP then
+		HUD.UpdateHP(currentHp, maxHp)
+	end
 end)
 
-Remotes.TakeDamage.OnClientEvent:Connect(function(amount)
-	ClientState.Stats.damageTaken += amount
+-- Уведомления
+Remotes.ShowNotification.OnClientEvent:Connect(function(message, color)
+	print("[Notification]", message)
+	-- Логика UI уведомления
 end)
 
-print("[ClientManager] Ready -", LocalPlayer.Name)
+print("[ClientManager] Initialized")
