@@ -37,12 +37,12 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-Remotes.RoundStart.OnClientEvent:Connect(function(data)
+----Remotes.RoundStart.OnClientEvent:Connect(function(data)
     ClientState.CurrentRound = data
     print("[Client] Round Start - Mode:", data and data.mode or "?")
 end)
 
-Remotes.RoundEnd.OnClientEvent:Connect(function(results)
+--Remotes.--Remotes.RoundEndRoundStart.OnClientEvent:Connect(function(results)
     local myResult = results[tostring(LocalPlayer.UserId)]
     if myResult then
         print("[Client] Round End - Score:", myResult.score, "Rank:", myResult.rank)
