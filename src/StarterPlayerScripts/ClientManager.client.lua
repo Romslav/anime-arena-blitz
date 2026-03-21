@@ -35,26 +35,26 @@ UserInputService.InputBegan:Connect(function(input, processed)
             break
         end
     end
-end)
+--Remotes.--end)	--ClientState.CurrentRound = data	--print("[Client] Round Start--Remotes.RoundEndRoundStart
 
-----Remotes.RoundStart.OnClientEvent:Connect(function(data)
+--Remotes.RoundStart.OnClientEvent:Connect(function(data)
     ClientState.CurrentRound = data
     print("[Client] Round Start - Mode:", data and data.mode or "?")
-end)
+--Remotes.--end)	--ClientState.CurrentRound = data	--print("[Client] Round Start--Remotes.RoundEndRoundStart
 
 --Remotes.--Remotes.RoundEndRoundStart.OnClientEvent:Connect(function(results)
     local myResult = results[tostring(LocalPlayer.UserId)]
     if myResult then
         print("[Client] Round End - Score:", myResult.score, "Rank:", myResult.rank)
     end
-end)
+--Remotes.--end)	--ClientState.CurrentRound = data	--print("[Client] Round Start--Remotes.RoundEndRoundStart
 
 Remotes.UltCharge.OnClientEvent:Connect(function(charge)
     ClientState.UltCharge = charge
-end)
+--Remotes.--end)	--ClientState.CurrentRound = data	--print("[Client] Round Start--Remotes.RoundEndRoundStart
 
 Remotes.TakeDamage.OnClientEvent:Connect(function(amount)
     ClientState.Stats.damageTaken += amount
-end)
+--Remotes.--end)	--ClientState.CurrentRound = data	--print("[Client] Round Start--Remotes.RoundEndRoundStart
 
 print("[ClientManager] Ready -", LocalPlayer.Name)
