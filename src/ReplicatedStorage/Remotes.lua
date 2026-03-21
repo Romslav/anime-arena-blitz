@@ -4,24 +4,26 @@
 local Remotes = {}
 
 Remotes.EVENTS = {
-    "RoundStart",        -- server -> client
-    "RoundEnd",          -- server -> client: results + rank
-    "RoundTimer",        -- server -> client: timer update
-    "SelectHero",        -- client -> server: hero selection
-    "HeroSelected",      -- server -> client: confirm
-    "UseSkill",          -- client -> server: skill input
-    "SkillUsed",         -- server -> client: skill animation
-    "TakeDamage",        -- server -> client: damage taken
-    "PlayerDied",        -- server -> client: death event
-    "UltCharge",         -- server -> client: ult meter update
-    "UpdateStats",       -- server -> client: match stats
-    "MatchRank",         -- server -> client: post-match rank
-    "ShowNotification",  -- server -> client: UI notification
+	"RoundStart",		-- server -> client
+	"RoundEnd",			-- server -> client: results + rank
+	"RoundTimer",		-- server -> client: timer update
+	"SelectHero",		-- client -> server: hero selection
+	"HeroSelected",		-- server -> client: confirm
+	"UseSkill",			-- client -> server: skill input
+	"SkillUsed",		-- server -> client: skill animation
+	"TakeDamage",		-- server -> client: damage taken
+	"PlayerDied",		-- server -> client: death event
+	"UltCharge",		-- server -> client: ult meter update
+	"UpdateStats",		-- server -> client: match stats
+	"MatchRank",		-- server -> client: post-match rank
+	"ShowNotification",	-- server -> client: UI notification
+	"UpdateEffect",		-- server -> client: VFX status effects
+	"UpdateHP",			-- server -> client: HP bar update
 }
 
 Remotes.FUNCTIONS = {
-    "GetPlayerData",
-    "GetLeaderboard",
+	"GetPlayerData",
+	"GetLeaderboard",
 }
 
 return Remotes
