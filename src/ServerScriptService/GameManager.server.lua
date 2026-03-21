@@ -193,3 +193,15 @@ function GameManager.OnKill(killerUserId, victimUserId, matchId)
 end
 
 return GameManager
+
+			-- Apply stats & init combat with game mode
+			if CharSvc and CharSvc.SpawnWithMode then
+				CharSvc.SpawnWithMode(p, heroData, mode)
+			else
+				-- Fallback to old method
+				if CharSvc then
+					CharSvc.SpawnWithHero(p, heroData)
+				elseif Combat then
+					Combat.initPlayer(p, heroData)
+				end
+			end
