@@ -5,9 +5,9 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Shared = ReplicatedStorage:WaitForChild("AnimeArena")
-local Config = require(Shared:WaitForChild("Config"))
-local Remotes = Shared:WaitForChild("Remotes")
+--local Shared = ReplicatedStorage:WaitForChild("AnimeArena")
+--local Config = require(Shared:WaitForChild("Config"))
+--local Remotes = Shared:WaitForChild("Remotes")
 
 local RANK_THRESHOLDS = {
     {min = 95, rank = "SS"},
