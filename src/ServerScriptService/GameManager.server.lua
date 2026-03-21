@@ -134,7 +134,7 @@ local function tryStartMatch()
 	local activePlayers = {}
 	for _, player in ipairs(Players:GetPlayers()) do
 		-- Проверяем что игрок выбрал героя
-		if HeroSelector.getSelected(player.UserId) then
+		if _G.HeroSelector.getSelected(player.UserId) then
 			table.insert(activePlayers, player)
 		end
 	end
