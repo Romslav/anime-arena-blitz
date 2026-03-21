@@ -32,6 +32,8 @@ makeRemote("UpdateHP")
 -- Match
 makeRemote("MatchStart")
 makeRemote("MatchEnd")
+makeRemote("RoundStart")
+makeRemote("RoundEndRoundStart")
 makeRemote("UpdateTimer")
 makeRemote("UpdateScoreboard")
 
