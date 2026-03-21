@@ -9,8 +9,7 @@ local LocalPlayer = Players.LocalPlayer
 
 --local Shared = ReplicatedStorage:WaitForChild("AnimeArena")
 --local Config = require(Shared:WaitForChild("Config"))
---local Remotes = Shared:WaitForChild("Remotes")
-
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local ClientState = {
     Hero = nil,
     UltCharge = 0,
