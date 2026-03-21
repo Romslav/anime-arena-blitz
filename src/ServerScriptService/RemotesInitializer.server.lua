@@ -4,10 +4,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 print("[INIT] Starting RemoteEvents initialization...")
 
-local Remotes = Instance.new("Folder")
-Remotes.Name = "Remotes"
-Remotes.Parent = ReplicatedStorage
-
+-- Используем существующую папку Remotes из Rojo конфигурации
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+print("[INIT] Found Remotes folder:", Remotes)
 local function makeRemote(name, isFunction)
 	local r
 	if isFunction then
