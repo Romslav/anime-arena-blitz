@@ -13,10 +13,10 @@ local ShowRankScreen = Remotes:WaitForChild("ShowRankScreen")
 local RequestRematch = Remotes:WaitForChild("RequestRematch")
 
 -- Подключаем другие модули
-local HeroSelector = require(ServerScriptService:WaitForChild("HeroSelector.server"))
-local CombatSystem = require(ServerScriptService:WaitForChild("CombatSystem.server"))
-local DataStore = require(ServerScriptService:WaitForChild("DataStore.server"))
-
+-- Эти скрипты уже запущены автоматически, не нужно require
+-- local HeroSelector = require(ServerScriptService:WaitForChild("HeroSelector.server"))
+-- local CombatSystem = require(ServerScriptService:WaitForChild("CombatSystem.server"))
+-- local DataStore = require(ServerScriptService:WaitForChild("DataStore.server"))
 -- НАСТРОЙКИ МАТЧА
 local MATCH_DURATION = 90  -- 1:30 секунд
 local MIN_PLAYERS = 2      -- минимум игроков для старта
