@@ -1,142 +1,166 @@
 -- CombatSystem.server.lua
--- Боевая система: обработка атак, HP, смерть, статистика
+-- Боевая система: обработка атак, HP, смерть, статусы
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StatusEffects = require(script.Parent.StatusEffects)
+local SkillHandlers = require(script.Parent.SkillHandlers)
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local UseAbility = Remotes:WaitForChild("UseAbility")
+local UseSkill = Remotes:WaitForChild("UseSkill")
 local TakeDamage = Remotes:WaitForChild("TakeDamage")
 local PlayerDied = Remotes:WaitForChild("PlayerDied")
 local UpdateHP = Remotes:WaitForChild("UpdateHP")
 local MatchEnd = Remotes:WaitForChild("MatchEnd")
+local SkillUsed = Remotes:WaitForChild("SkillUsed")
 
--- HP игроков в текущем матче
--- { [userId] = { hp = N, maxHp = N, heroId = "...", alive = bool, kills = N, damage = N } }
 local matchState = {}
-
--- Кулдауны способностей: { [userId] = { [abilityName] = tick } }
 local cooldowns = {}
 
-local ABILITY_COOLDOWNS = {
-	Q = 8,
-	E = 12,
-	R = 30, -- ульта
-}
+-- Инициализация SkillHandlers
+local Characters = require(ReplicatedStorage:WaitForChild("Characters"))
+SkillHandlers.Init(Characters)
 
-local function isOnCooldown(userId, ability)
-	local cd = cooldowns[userId]
-	if not cd then return false end
-	local last = cd[ability]
-	if not last then return false end
-	return (tick() - last) < ABILITY_COOLDOWNS[ability]
+-- === Логика боя ===
+
+local function dealDamage(attacker, victim, amount, reason)
+	local state = matchState[victim.UserId]
+	if not state or not state.alive then return end
+	
+	-- Учитываем щиты из StatusEffects
+	local finalDamage = StatusEffects.ProcessDamageWithShield(victim.UserId, amount)
+	if finalDamage <= 0 then return end
+	
+	-- Модификаторы атакующего
+	local attackerMultiplier = StatusEffects.GetDamageMultiplier(attacker.UserId)
+	finalDamage = finalDamage * attackerMultiplier
+	
+	local attackerState = matchState[attacker.UserId]
+	if attackerState then
+		attackerState.damage = attackerState.damage + finalDamage
+	end
+	
+	state.hp = math.max(0, state.hp - finalDamage)
+	
+	-- Обновление UI
+	UpdateHP:FireClient(victim, state.hp, state.maxHp)
+	UpdateHP:FireClient(attacker, state.hp, state.maxHp)
+	
+	if state.hp <= 0 then
+		state.alive = false
+		if attackerState then
+			attackerState.kills = attackerState.kills + 1
+		end
+		PlayerDied:FireAllClients(victim.UserId, attacker.UserId)
+		StatusEffects.ClearPlayer(victim.UserId)
+		
+		-- Проверка победы
+		local alivePlayers = {}
+		for uid, s in pairs(matchState) do
+			if s.alive then table.insert(alivePlayers, uid) end
+		end
+		if #alivePlayers <= 1 then
+			MatchEnd:FireAllClients(alivePlayers[1] or 0)
+		end
+	end
 end
 
-local function setCooldown(userId, ability)
-	if not cooldowns[userId] then cooldowns[userId] = {} end
-	cooldowns[userId][ability] = tick()
+-- Публичный метод для StatusEffects (DoT)
+local CombatSystem = {}
+function CombatSystem.dealDamageToPlayer(userId, amount, reason)
+	local victim = Players:GetPlayerByUserId(userId)
+	if not victim then return end
+	
+	-- Для DoT атакующим считается сама система или последний ударивший (упростим до системы)
+	dealDamage(victim, victim, amount, reason) 
 end
 
--- Абилити по типу
-local ABILITY_DAMAGE = {
-	Q = 40,
-	E = 65,
-	R = 120,
-	M1 = 0, -- M1 обрабатывается отдельно
-}
+-- === Обработка скиллов ===
 
--- Инициализация состояния игрока
-local function initPlayer(player, heroData)
-	local maxHp = heroData and heroData.hp or 150
+UseSkill.OnServerEvent:Connect(function(player, skillKey)
+	local state = matchState[player.UserId]
+	if not state or not state.alive then return end
+	
+	-- Проверка стана
+	if StatusEffects.IsStunned(player.UserId) then
+		print("[Combat]", player.Name, "is stunned and cannot use skills")
+		return
+	end
+	
+	-- Проверка кулдауна
+	local heroData = Characters[state.heroId]
+	if not heroData then return end
+	
+	local cdTable = cooldowns[player.UserId] or {}
+	local lastUsed = cdTable[skillKey] or 0
+	
+	local skillInfo = nil
+	if skillKey == "Q" then skillInfo = heroData.skills[1]
+	elseif skillKey == "E" then skillInfo = heroData.skills[2]
+	elseif skillKey == "R" then skillInfo = heroData.ultimate end
+	
+	if not skillInfo then return end
+	
+	if tick() - lastUsed < skillInfo.cooldown then
+		return
+	end
+	
+	-- Выполнение скилла
+	cdTable[skillKey] = tick()
+	cooldowns[player.UserId] = cdTable
+	
+	-- Визуализация для всех
+	SkillUsed:FireAllClients(player.UserId, skillKey)
+	
+	-- Логика из SkillHandlers
+	local handler = SkillHandlers[state.heroId]
+	if handler and handler[skillKey] then
+		handler[skillKey](player, {
+			dealDamage = dealDamage,
+			getState = function(uid) return matchState[uid] end
+		})
+	end
+end)
+
+-- Вспомогательный метод для дефолтных скиллов
+function CombatSystem.defaultSkillHit(player, skillData)
+	-- Простая реализация хитбокса перед игроком
+	local character = player.Character
+	if not character then return end
+	
+	local hrp = character.HumanoidRootPart
+	local region = hrp.CFrame * CFrame.new(0, 0, -5)
+	
+	for _, otherPlayer in pairs(Players:GetPlayers()) do
+		if otherPlayer ~= player and otherPlayer.Character then
+			local dist = (otherPlayer.Character.HumanoidRootPart.Position - region.Position).Magnitude
+			if dist < 7 then
+				dealDamage(player, otherPlayer, skillData.damage or 10)
+			end
+		end
+	end
+end
+
+-- === Системные функции ===
+
+function CombatSystem.initPlayer(player, heroData)
+	local maxHp = heroData and heroData.hp or 100
 	matchState[player.UserId] = {
 		hp = maxHp,
 		maxHp = maxHp,
-		heroId = heroData and heroData.id or "unknown",
+		heroId = heroData and heroData.id or "FlameRonin",
 		alive = true,
 		kills = 0,
 		damage = 0,
 	}
 	cooldowns[player.UserId] = {}
-	print("[Combat] Init player", player.Name, "HP:", maxHp)
+	StatusEffects.ClearPlayer(player.UserId)
 end
 
--- Нанесение урона
-local function dealDamage(attacker, victim, amount)
-	local state = matchState[victim.UserId]
-	if not state or not state.alive then return end
-	
-	local attackerState = matchState[attacker.UserId]
-	if attackerState then
-		attackerState.damage = attackerState.damage + amount
-	end
-	
-	state.hp = math.max(0, state.hp - amount)
-	
-	-- Обновляем HP на клиенте жертвы
-	UpdateHP:FireClient(victim, state.hp, state.maxHp)
-	-- И атакующему (feedback)
-	UpdateHP:FireClient(attacker, state.hp, state.maxHp)
-	
-	if state.hp <= 0 then
-		state.alive = false
-		
-		-- Увеличиваем счетчик убийств
-		if attackerState then
-			attackerState.kills = attackerState.kills + 1
-		end
-		
-		PlayerDied:FireAllClients(victim.UserId, attacker.UserId)
-		print("[Combat]", victim.Name, "died, killed by", attacker.Name)
-		
-		-- Проверяем конец матча
-		local aliveCount = 0
-		local lastAlive
-		for uid, s in pairs(matchState) do
-			if s.alive then
-				aliveCount += 1
-				lastAlive = uid
-			end
-		end
-		
-		if aliveCount <= 1 then
-			MatchEnd:FireAllClients(lastAlive)
-		end
-	end
-end
-
--- Обработка использования способности
-UseAbility.OnServerEvent:Connect(function(player, abilityType, targetUserId)
-	local state = matchState[player.UserId]
-	if not state or not state.alive then return end
-	
-	if abilityType ~= "M1" and isOnCooldown(player.UserId, abilityType) then
-		return
-	end
-	
-	if abilityType ~= "M1" then
-		setCooldown(player.UserId, abilityType)
-	end
-	
-	local dmg = ABILITY_DAMAGE[abilityType] or 0
-	if dmg > 0 and targetUserId then
-		local targetPlayer = Players:GetPlayerByUserId(targetUserId)
-		if targetPlayer then
-			dealDamage(player, targetPlayer, dmg)
-		end
-	end
-end)
-
--- Очистка
 Players.PlayerRemoving:Connect(function(player)
 	matchState[player.UserId] = nil
 	cooldowns[player.UserId] = nil
+	StatusEffects.ClearPlayer(player.UserId)
 end)
 
--- Публичное API
-return {
-	initPlayer = initPlayer,
-	dealDamage = dealDamage,
-	getState = function(uid) return matchState[uid] end,
-	getMatchState = function() return matchState end,
-	resetMatch = function() matchState = {} cooldowns = {} end,
-}
+return CombatSystem
