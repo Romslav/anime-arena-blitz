@@ -44,25 +44,25 @@ Config.REWARDS = {
 }
 
 Config.HEROES = {
-    "FlameRonin", "VoidAssassin", "ThunderMonk",
-    "IronTitan", "ScarletArcher", "EclipseHero",
-    "FrostDuelist", "StarBlade", "SerpentPriest",
-    "StoneColossus", "WindStriker", "NovaEmperor",
+	"FlameRonin",   "VoidAssassin",  "ThunderMonk",
+	"IronTitan",    "ScarletArcher", "EclipseHero",
+	"StormDancer",  "BloodSage",     "CrystalGuard",
+	"ShadowTwin",   "NeonBlitz",     "JadeSentinel",
 }
 
 Config.HERO_RARITY = {
-    FlameRonin    = "Common",
-    FrostDuelist  = "Common",
-    ThunderMonk   = "Rare",
-    WindStriker   = "Rare",
-    ScarletArcher = "Rare",
-    IronTitan     = "Epic",
-    SerpentPriest = "Epic",
-    StarBlade     = "Epic",
-    VoidAssassin  = "Legendary",
-    StoneColossus = "Legendary",
-    EclipseHero   = "Mythic",
-    NovaEmperor   = "Mythic",
+	FlameRonin    = "Common",
+	StormDancer   = "Common",
+	ThunderMonk   = "Rare",
+	ScarletArcher = "Rare",
+	IronTitan     = "Rare",
+	CrystalGuard  = "Rare",
+	JadeSentinel  = "Rare",
+	ShadowTwin    = "Epic",
+	NeonBlitz     = "Epic",
+	VoidAssassin  = "Legendary",
+	BloodSage     = "Legendary",
+	EclipseHero   = "Legendary",
 }
 
 return Config

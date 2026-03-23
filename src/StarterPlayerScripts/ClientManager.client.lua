@@ -1,70 +1,150 @@
--- ClientManager.client.lua | Anime Arena: Blitz Mode
--- Main client manager: input, events, state
+-- ClientManager.client.lua | Anime Arena: Blitz
+-- Главный клиентский оркестратор:
+--   • Инициализация всех клиентских систем
+--   • Хранит heroId / matchMode / matchId локально
+--   • Ретранслирует SkillUsed чужих игроков в VFXManager
+--   • Слот F полностью поддерживается
 
-local Players = game:GetService("Players")
+local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
+local TweenService      = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
+
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local VFXManager = require(script.Parent:WaitForChild("VFXManager"))
+
+-- Ожидаем все Remote-ы прежде чем слушать
+local rCharacterSpawned = Remotes:WaitForChild("CharacterSpawned", 10)
+local rMatchStart       = Remotes:WaitForChild("MatchStart",       10)
+local rMatchEnd         = Remotes:WaitForChild("MatchEnd",         10)
+local rRoundStart       = Remotes:WaitForChild("RoundStart",       10)
+local rRoundEnd         = Remotes:WaitForChild("RoundEnd",         10)
+local rSkillUsed        = Remotes:WaitForChild("SkillUsed",        10)
+local rPlayerDied       = Remotes:WaitForChild("PlayerDied",       10)
+local rPlayerRespawn    = Remotes:WaitForChild("PlayerRespawned",  10)
+local rMatchFound       = Remotes:WaitForChild("MatchFound",       10)
+local rQueueStatus      = Remotes:WaitForChild("QueueStatus",      10)
+
+-- ============================================================
+-- СОСТОЯНИЕ КЛИЕНТА
+-- ============================================================
 
 local ClientState = {
-	Hero = "FlameRonin", -- Default for testing
-	UltCharge = 0,
-	IsStunned = false,
+	heroId    = nil,
+	matchId   = nil,
+	matchMode = nil,
+	inMatch   = false,
+	inQueue   = false,
+	heroSpeed = 16,  -- FIX: базовая скорость героя — читается в SkillController для сброса WalkSpeed
 }
 
-local KEYBINDS = {
-	[Enum.KeyCode.Q] = "Q",
-	[Enum.KeyCode.E] = "E",
-	[Enum.KeyCode.R] = "R",
+_G.ClientState = ClientState
+
+-- ============================================================
+-- VFXManager (ленивая загрузка)
+-- ============================================================
+
+local VFXManager
+task.defer(function()
+	-- VFXManager — LocalScript Module в той же папке
+	local ok, m = pcall(require, script.Parent:WaitForChild("VFXManager", 8))
+	if ok then
+		VFXManager = m
+		print("[ClientManager] VFXManager loaded")
+	else
+		warn("[ClientManager] VFXManager not found:", m)
+	end
+end)
+
+-- ============================================================
+-- CHARACTER SPAWNED
+-- ============================================================
+
+rCharacterSpawned.OnClientEvent:Connect(function(userId, heroId, heroName)
+	ClientState.heroId = heroId
+	-- Извлекаем скорость из персонажа (после того как CharacterService.ApplyStats её выставил)
+	task.delay(0.3, function()
+		local char = LocalPlayer.Character
+		local hum  = char and char:FindFirstChildOfClass("Humanoid")
+		if hum then
+			ClientState.heroSpeed = hum.WalkSpeed
+		end
+	end)
+	print(string.format("[ClientManager] Spawned as %s (%s)", tostring(heroId), tostring(heroName)))
+end)
+
+-- ============================================================
+-- MATCH FLOW
+-- ============================================================
+
+rMatchFound.OnClientEvent:Connect(function(matchInfo)
+	ClientState.matchId   = matchInfo and matchInfo.matchId
+	ClientState.matchMode = matchInfo and matchInfo.mode
+	ClientState.inQueue   = false
+	print(string.format("[ClientManager] Match found: %s [%s]",
+		tostring(ClientState.matchId),
+		tostring(ClientState.matchMode)))
+end)
+
+rMatchStart.OnClientEvent:Connect(function(mode)
+	ClientState.inMatch   = true
+	ClientState.matchMode = mode or ClientState.matchMode
+end)
+
+rMatchEnd.OnClientEvent:Connect(function(resultData)
+	ClientState.inMatch = false
+	ClientState.matchId = nil
+end)
+
+rRoundStart.OnClientEvent:Connect(function(mode, roundId)
+	ClientState.inMatch = true
+end)
+
+rRoundEnd.OnClientEvent:Connect(function()
+	-- inMatch остаётся true до MatchEnd
+end)
+
+rQueueStatus.OnClientEvent:Connect(function(position, total)
+	ClientState.inQueue = true
+end)
+
+-- ============================================================
+-- SKILL BROADCAST (чужие игроки)
+-- ============================================================
+
+rSkillUsed.OnClientEvent:Connect(function(userId, slot, heroId, targetPos)
+	-- Свои скиллы VFX обрабатывает SkillVFXController
+	-- ClientManager обрабатывает только чужих
+	if userId == LocalPlayer.UserId then return end
+	if VFXManager then
+		VFXManager.PlaySkillVFX(userId, slot, heroId or "FlameRonin", targetPos)
+	end
+end)
+
+-- ============================================================
+-- DEATH / RESPAWN
+-- ============================================================
+
+rPlayerDied.OnClientEvent:Connect(function(victimId, killerId, respawnTime)
+	if VFXManager then
+		VFXManager.ClearStatusVFX(victimId)
+	end
+end)
+
+rPlayerRespawn.OnClientEvent:Connect(function()
+	-- HUD обрабатывает сам
+	ClientState.inMatch = ClientState.inMatch  -- no-op, для ясности
+end)
+
+-- ============================================================
+-- PUBLIC API
+-- ============================================================
+
+_G.ClientManager = {
+	GetState = function() return ClientState end,
+	GetHeroId = function() return ClientState.heroId end,
+	GetMode   = function() return ClientState.matchMode end,
+	IsInMatch = function() return ClientState.inMatch end,
 }
 
--- === Обработка Ввода ===
-
-UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	
-	local skillKey = KEYBINDS[input.KeyCode]
-	if skillKey then
-		-- Отправляем запрос на сервер
-		Remotes.UseSkill:FireServer(skillKey)
-		print("[Client] Requested skill:", skillKey)
-	end
-end)
-
--- === Обработка Событий от Сервера ===
-
--- Визуализация использования скиллов (своих и чужих)
-Remotes.SkillUsed.OnClientEvent:Connect(function(userId, skillKey)
-	-- Тут мы могли бы получить heroId игрока из общей таблицы или атрибутов
-	-- Для MVP предположим, что мы знаем героев (или добавим в эвент позже)
-	VFXManager.PlaySkillVFX(userId, skillKey, "FlameRonin") 
-end)
-
--- Визуализация статус-эффектов (Burn, Stun и т.д.)
-Remotes.UpdateEffect.OnClientEvent:Connect(function(effectType, isActive, duration)
-	VFXManager.UpdateStatusEffect(LocalPlayer.UserId, effectType, isActive, duration)
-	
-	if effectType == "Stun" then
-		ClientState.IsStunned = isActive
-	end
-end)
-
--- Обновление HP (в HUD)
-Remotes.UpdateHP.OnClientEvent:Connect(function(currentHp, maxHp)
-	-- Вызов функции HUD
-	local HUD = require(script.Parent:WaitForChild("HUD"))
-	if HUD and HUD.UpdateHP then
-		HUD.UpdateHP(currentHp, maxHp)
-	end
-end)
-
--- Уведомления
-Remotes.ShowNotification.OnClientEvent:Connect(function(message, color)
-	print("[Notification]", message)
-	-- Логика UI уведомления
-end)
-
-print("[ClientManager] Initialized")
+print("[ClientManager] Initialized ✓")

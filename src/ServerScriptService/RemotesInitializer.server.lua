@@ -1,56 +1,38 @@
--- RemotesInitializer.server.lua | Anime Arena: Blitz Mode
--- Creates all RemoteEvents and RemoteFunctions used across the game
+-- RemotesInitializer.server.lua | Anime Arena: Blitz
+-- Создаёт ВСЕ RemoteEvent / RemoteFunction из Remotes.lua.
+-- Должен запускаться ПЕРВЫМ из всех серверных скриптов
+-- (поставь RunContext = Legacy и Priority = 1000 в Studio).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-print("[INIT] Starting RemoteEvents initialization...")
+local RemotesDef        = require(ReplicatedStorage:WaitForChild("Remotes"))
 
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-print("[INIT] Found Remotes folder:", Remotes)
-
-local function makeRemote(name, isFunction)
-	local r
-	if isFunction then
-		r = Instance.new("RemoteFunction")
-	else
-		r = Instance.new("RemoteEvent")
-	end
-	r.Name = name
-	r.Parent = Remotes
-	return r
+local folder = ReplicatedStorage:FindFirstChild("Remotes")
+if not folder then
+	folder      = Instance.new("Folder")
+	folder.Name = "Remotes"
+	folder.Parent = ReplicatedStorage
 end
 
--- === HeroSelector ===
-makeRemote("SelectHero")         -- client -> server: player picks hero
-makeRemote("HeroSelected")       -- server -> client: confirm hero selection
-makeRemote("CharacterSpawned")   -- server -> all:    notify hero identity on spawn
+-- Создаём RemoteEvent-ы
+for _, name in ipairs(RemotesDef.EVENTS) do
+	if not folder:FindFirstChild(name) then
+		local re      = Instance.new("RemoteEvent")
+		re.Name       = name
+		re.Parent     = folder
+	end
+end
 
--- === Game Flow ===
-makeRemote("RoundStart")         -- server -> client: match begins, sends mode
-makeRemote("RoundEnd")           -- server -> client: match ends, sends results
-makeRemote("RoundTimer")         -- server -> client: countdown tick
-makeRemote("MatchStart")         -- server -> client: alias for MatchStart (HeroSelector compatibility)
+-- Создаём RemoteFunction-ы
+for _, name in ipairs(RemotesDef.FUNCTIONS) do
+	if not folder:FindFirstChild(name) then
+		local rf      = Instance.new("RemoteFunction")
+		rf.Name       = name
+		rf.Parent     = folder
+	end
+end
 
--- === Combat ===
-makeRemote("UseSkill")           -- client -> server: activate skill by index
-makeRemote("UseUltimate")        -- client -> server: activate ultimate
-makeRemote("M1Attack")           -- client -> server: basic attack
-makeRemote("TakeDamage")         -- server -> client: health update notification
-makeRemote("ChargeUlt")          -- server -> client: ult charge update
-makeRemote("UltCharge")          -- server -> client: ult charge (alias)
+-- Валидация — ловим расхождения сразу
+RemotesDef.Validate(folder)
 
--- === Skills / VFX ===
-makeRemote("SkillVFX")           -- server -> all:    broadcast skill VFX to clients
-makeRemote("StatusEffectApplied")-- server -> client: notify status effect applied
-makeRemote("StatusEffectRemoved")-- server -> client: notify status effect removed
-
--- === Matchmaking ===
-makeRemote("JoinQueue")          -- client -> server: enter matchmaking
-makeRemote("LeaveQueue")         -- client -> server: exit matchmaking
-makeRemote("MatchFound")         -- server -> client: match is ready
-
--- === UI / HUD ===
-makeRemote("UpdateHUD")          -- server -> client: push HP/ult/timer data
-makeRemote("ShowKillFeed")       -- server -> all:    kill feed entry
-makeRemote("ShowNotification")   -- server -> client: in-game toast message
-
-print("[INIT] All remotes initialized successfully.")
+print(string.format("[RemotesInitializer] Created %d events + %d functions ✓",
+	#RemotesDef.EVENTS, #RemotesDef.FUNCTIONS))

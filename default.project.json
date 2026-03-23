@@ -9,12 +9,7 @@
 
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "Modules": {
-        "$path": "src/ReplicatedStorage"
-      },
-      "Remotes": {
-        "$className": "Folder"
-      }
+      "$path": "src/ReplicatedStorage"
     },
 
     "StarterPlayer": {

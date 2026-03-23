@@ -234,6 +234,124 @@ function StatusEffects.GetSpeedMultiplier(userId)
 	return multiplier
 end
 
+-- === ApplyBuff / ApplyDebuff — унифицированное API (FIX #2, #3) ===
+
+--- Универсальный бафф: DamageBoost, DamageReduction, UltChargeBoost, SpeedBoost
+function StatusEffects.ApplyBuff(userId, buffType, multiplier, duration)
+	if buffType == "DamageBoost" then
+		return StatusEffects.ApplyBuffDamage(userId, duration, multiplier)
+	elseif buffType == "DamageReduction" then
+		-- Снижение входящего урона — сохраняем как отдельный тип
+		local data = { multiplier = multiplier, buffType = "DamageReduction" }
+		return applyEffect(userId, "DamageReduction", duration, data)
+	elseif buffType == "UltChargeBoost" then
+		-- Ускоренный заряд ульты — буффаем скорость
+		local data = { multiplier = multiplier, buffType = "UltChargeBoost" }
+		return applyEffect(userId, "UltChargeBoost", duration, data)
+	elseif buffType == "SpeedBoost" then
+		return StatusEffects.ApplyBuffSpeed(userId, duration, multiplier)
+	else
+		-- Неизвестный тип — сохраняем с generic-ключом
+		local data = { multiplier = multiplier or 1, buffType = buffType }
+		return applyEffect(userId, "Buff_" .. buffType, duration, data)
+	end
+end
+
+--- Универсальный дебафф: VoidMarked, Blind, Weaken и др.
+function StatusEffects.ApplyDebuff(userId, debuffType, multiplier, duration)
+	local data = { multiplier = multiplier or 1.0, debuffType = debuffType }
+	return applyEffect(userId, "Debuff_" .. debuffType, duration, data)
+end
+
+--- Суммарный дебафф-множитель входящего урона (FIX #4)
+--- Возвращает > 1.0 если есть дебаффы типа VoidMarked (цель получает больше урона)
+function StatusEffects.GetDebuffMultiplier(userId)
+	if not activeEffects[userId] then return 1.0 end
+	local mult = 1.0
+	for _, effect in pairs(activeEffects[userId]) do
+		if effect.type:sub(1, 7) == "Debuff_" then
+			mult = mult * (effect.data.multiplier or 1.0)
+		end
+	end
+	return mult
+end
+
+--- Суммарный множитель снижения урона (DamageReduction)
+function StatusEffects.GetDamageReductionMultiplier(userId)
+	if not activeEffects[userId] then return 1.0 end
+	local mult = 1.0
+	for _, effect in pairs(activeEffects[userId]) do
+		if effect.type == "DamageReduction" then
+			mult = mult * (effect.data.multiplier or 1.0)
+		end
+	end
+	return mult
+end
+
+--- Проверить: есть ли конкретный дебафф (напр. "Blind", "VoidMarked")
+function StatusEffects.HasDebuff(userId, debuffType)
+	return StatusEffects.HasEffect(userId, "Debuff_" .. debuffType)
+end
+
+-- === ApplyBuff / ApplyDebuff — унифицированное API (FIX #2, #3) ===
+
+--- Универсальный бафф: DamageBoost, DamageReduction, UltChargeBoost, SpeedBoost
+function StatusEffects.ApplyBuff(userId, buffType, multiplier, duration)
+	if buffType == "DamageBoost" then
+		return StatusEffects.ApplyBuffDamage(userId, duration, multiplier)
+	elseif buffType == "DamageReduction" then
+		-- Снижение входящего урона — сохраняем как отдельный тип
+		local data = { multiplier = multiplier, buffType = "DamageReduction" }
+		return applyEffect(userId, "DamageReduction", duration, data)
+	elseif buffType == "UltChargeBoost" then
+		-- Ускоренный заряд ульты — буффаем скорость
+		local data = { multiplier = multiplier, buffType = "UltChargeBoost" }
+		return applyEffect(userId, "UltChargeBoost", duration, data)
+	elseif buffType == "SpeedBoost" then
+		return StatusEffects.ApplyBuffSpeed(userId, duration, multiplier)
+	else
+		-- Неизвестный тип — сохраняем с generic-ключом
+		local data = { multiplier = multiplier or 1, buffType = buffType }
+		return applyEffect(userId, "Buff_" .. buffType, duration, data)
+	end
+end
+
+--- Универсальный дебафф: VoidMarked, Blind, Weaken и др.
+function StatusEffects.ApplyDebuff(userId, debuffType, multiplier, duration)
+	local data = { multiplier = multiplier or 1.0, debuffType = debuffType }
+	return applyEffect(userId, "Debuff_" .. debuffType, duration, data)
+end
+
+--- Суммарный дебафф-множитель входящего урона (FIX #4)
+--- Возвращает > 1.0 если есть дебаффы типа VoidMarked (цель получает больше урона)
+function StatusEffects.GetDebuffMultiplier(userId)
+	if not activeEffects[userId] then return 1.0 end
+	local mult = 1.0
+	for _, effect in pairs(activeEffects[userId]) do
+		if effect.type:sub(1, 7) == "Debuff_" then
+			mult = mult * (effect.data.multiplier or 1.0)
+		end
+	end
+	return mult
+end
+
+--- Суммарный множитель снижения урона (DamageReduction)
+function StatusEffects.GetDamageReductionMultiplier(userId)
+	if not activeEffects[userId] then return 1.0 end
+	local mult = 1.0
+	for _, effect in pairs(activeEffects[userId]) do
+		if effect.type == "DamageReduction" then
+			mult = mult * (effect.data.multiplier or 1.0)
+		end
+	end
+	return mult
+end
+
+--- Проверить: есть ли конкретный дебафф (напр. "Blind", "VoidMarked")
+function StatusEffects.HasDebuff(userId, debuffType)
+	return StatusEffects.HasEffect(userId, "Debuff_" .. debuffType)
+end
+
 -- === Очистка при выходе игрока ===
 
 function StatusEffects.ClearPlayer(userId)
@@ -262,12 +380,10 @@ RunService.Heartbeat:Connect(function()
 					if now - effect.data.lastTick >= 1.0 then -- тик раз в секунду
 						effect.data.lastTick = now
 						
-						-- Вызываем урон (должно быть подключено из CombatSystem)
-						local CombatSystem = require(script.Parent.CombatSystem)
-						local player = game.Players:GetPlayerByUserId(userId)
-						if player and CombatSystem.dealDamageToPlayer then
+						-- FIX: используем _G.CombatSystem вместо require (избегаем циклической зависимости)
+						local CombatSystem = _G.CombatSystem
+						if CombatSystem and CombatSystem.dealDamageToPlayer then
 							CombatSystem.dealDamageToPlayer(userId, effect.data.damagePerTick, "DoT")
-							print("[StatusEffects]", effect.type, "dealt", effect.data.damagePerTick, "damage to", userId)
 						end
 					end
 				end

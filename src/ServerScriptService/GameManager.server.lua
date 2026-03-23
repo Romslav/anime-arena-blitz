@@ -84,10 +84,10 @@ function GameManager.StartMatch(playerIds, mode)
 		mode = mode,
 	}
 	
-	-- Notify clients match has started
-	for _, p in pairs(matchPlayers) do
-		MatchStart:FireClient(p, mode)
-	end
+	-- BUG-FIX: GameManager БОЛЬШЕ не стреляет RoundStart —
+	-- это делает RoundService.runBattle с полными аргументами
+	-- (leftHeroId, leftName, rightHeroId, rightName, mode)
+	-- Двойной fire приводил к путанице аргументов в SkillController
 	
 	-- Run timer loop
 	task.spawn(function()
@@ -222,4 +222,4 @@ function GameManager.OnKill(killerUserId, victimUserId, matchId)
 	end
 end
 
-return GameManager
+print("[GameManager] Initialized ✓")

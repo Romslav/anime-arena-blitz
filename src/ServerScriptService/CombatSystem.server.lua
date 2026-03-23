@@ -1,204 +1,509 @@
--- CombatSystem.server.lua
--- Боевая система: обработка атак, HP, смерть, статусы, режимы
+-- CombatSystem.server.lua | Anime Arena: Blitz
+-- Боевая система: урон, смерть, скиллы Q/E/F/R, кулдауны, статусы, UltCharge
+-- Использует SkillHandlers[heroId].GetHandler(heroId)[slot](player, targetPos, api)
 
-local Players = game:GetService("Players")
+local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
 
 local StatusEffects = require(script.Parent.StatusEffects)
 local SkillHandlers = require(script.Parent.SkillHandlers)
+local Characters    = require(ReplicatedStorage:WaitForChild("Characters"))
 
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local UseSkill = Remotes:WaitForChild("UseSkill")
-local TakeDamage = Remotes:WaitForChild("TakeDamage")
-local PlayerDied = Remotes:WaitForChild("PlayerDied")
-local UpdateHP = Remotes:WaitForChild("UpdateHP")
-local MatchEnd = Remotes:WaitForChild("MatchEnd")
-local SkillUsed = Remotes:WaitForChild("SkillUsed")
+local Remotes           = ReplicatedStorage:WaitForChild("Remotes")
+local rUseSkill         = Remotes:WaitForChild("UseSkill")
+local rM1Attack         = Remotes:WaitForChild("M1Attack")
+local rTakeDamage       = Remotes:WaitForChild("TakeDamage")
+local rUpdateHP         = Remotes:WaitForChild("UpdateHP")
+local rHeal             = Remotes:WaitForChild("Heal")
+local rPlayerDied       = Remotes:WaitForChild("PlayerDied")
+local rSkillResult      = Remotes:WaitForChild("SkillResult")
+local rSkillUsed        = Remotes:WaitForChild("SkillUsed")
+local rUltCharge        = Remotes:WaitForChild("UltCharge")
+local rChargeUlt        = Remotes:WaitForChild("ChargeUlt")
+local rUpdateEffect     = Remotes:WaitForChild("UpdateEffect")
+local rUpdateHUD        = Remotes:WaitForChild("UpdateHUD")
+local rUpdateSkillCDs   = Remotes:WaitForChild("UpdateSkillCooldowns")
 
+-- ============================================================
+-- СОСТОЯНИЕ
+-- ============================================================
+
+-- matchState[userId] = {
+--   hp, maxHp, heroId, alive, kills, deaths, damage,
+--   matchId, mode, speed, ultCharge, lastM1
+-- }
 local matchState = {}
-local cooldowns = {}
+local cooldowns  = {}  -- cooldowns[userId][slot] = lastUsedTick
 
--- Инициализация SkillHandlers
-local Characters = require(ReplicatedStorage:WaitForChild("Characters"))
-SkillHandlers.Init(Characters)
+-- ============================================================
+-- ВСПОМОГАТЕЛЬНЫЕ
+-- ============================================================
 
--- === Хелперы: получаем системы ===
+local function getModifiers()
+	return _G.GameModeModifiers
+end
+
 local function getGameManager()
 	return _G.GameManager
 end
 
-local function getGameModeModifiers()
-	return _G.GameModeModifiers
+local function getRoundService()
+	return _G.RoundService
 end
 
--- === Логика боя ===
-local function dealDamage(attacker, victim, amount, reason)
-	local state = matchState[victim.UserId]
-	if not state or not state.alive then return end
-	
-	-- Учитываем щиты из StatusEffects
-	local finalDamage = StatusEffects.ProcessDamageWithShield(victim.UserId, amount)
-	if finalDamage <= 0 then return end
-	
-	-- Модификаторы атакующего
-	local attackerMultiplier = StatusEffects.GetDamageMultiplier(attacker.UserId)
-	finalDamage = finalDamage * attackerMultiplier
-	
-	-- GameModeModifiers damage multiplier
-	local modifiers = getGameModeModifiers()
-	if modifiers and attacker.Character then
-		local dmgMult = modifiers.GetDamageMultiplier(attacker.Character)
-		finalDamage = finalDamage * dmgMult
+local function fireHUD(player, data)
+	local ok, err = pcall(function() rUpdateHUD:FireClient(player, data) end)
+	if not ok then warn("[Combat] HUD fire error:", err) end
+end
+
+-- ============================================================
+-- БОТ — утилиты
+-- ============================================================
+
+-- Бот: прокси-объект с _isBot=true вместо Player
+local function isBot(p)
+	return type(p) == "table" and p._isBot == true
+end
+
+local function isRealPlayer(p)
+	return not isBot(p) and typeof(p) == "Instance" and p:IsA("Player")
+end
+
+--- Безопасно получить UserId для любого участника (бот или игрок)
+--- @param p Player | BotProxy
+--- @return number | nil
+local function getUserId(p)
+	if isBot(p) then
+		return _G.TestBot and _G.TestBot.getUserId and _G.TestBot.getUserId() or nil
 	end
-	
-	local attackerState = matchState[attacker.UserId]
-	if attackerState then
-		attackerState.damage = attackerState.damage + finalDamage
+	if isRealPlayer(p) then
+		return p.UserId
 	end
-	
-	state.hp = math.max(0, state.hp - finalDamage)
-	
-	-- Обновление UI
-	UpdateHP:FireClient(victim, state.hp, state.maxHp)
-	UpdateHP:FireClient(attacker, state.hp, state.maxHp)
-	
-	if state.hp <= 0 then
-		state.alive = false
-		if attackerState then
-			attackerState.kills = attackerState.kills + 1
+	return nil
+end
+
+-- ============================================================
+-- УРОН / СМЕРТЬ
+-- ============================================================
+
+local function notifyDamage(attacker, victim, amount, dmgType)
+	local victimId = getUserId(victim)
+	if not victimId then return end
+	local vState = matchState[victimId]
+	if not vState then return end
+
+	if isRealPlayer(victim) then
+		rTakeDamage:FireClient(victim, vState.hp, vState.maxHp, amount, dmgType,
+			attacker and getUserId(attacker) or 0)
+		fireHUD(victim, { hp = vState.hp, maxHp = vState.maxHp })
+	else
+		-- Бот: синхронизируем hp через _G.TestBot
+		if _G.TestBot and _G.TestBot.syncHp then
+			_G.TestBot.syncHp(vState.hp, vState.maxHp)
 		end
-		PlayerDied:FireAllClients(victim.UserId, attacker.UserId)
-		StatusEffects.ClearPlayer(victim.UserId)
-		
-		-- Вызов GameManager.OnKill для kill feed и проверки win condition
+	end
+
+	-- Ульта-заряд атакующему (только реальным)
+	if isRealPlayer(attacker) then
+		local aState = matchState[attacker.UserId]
+		if aState then
+			local mods = getModifiers()
+			local chargeRate = 1
+			if mods and mods.GetUltChargeRate and attacker.Character then
+				local ok, r = pcall(mods.GetUltChargeRate, attacker.Character)
+				if ok then chargeRate = r end
+			end
+			local baseGain = dmgType == "Ultimate" and 8 or 3
+			aState.ultCharge = math.min(100, aState.ultCharge + baseGain * chargeRate)
+			rUltCharge:FireClient(attacker, aState.ultCharge)
+			rChargeUlt:FireClient(attacker, aState.ultCharge)
+			fireHUD(attacker, { ultCharge = aState.ultCharge })
+		end
+	end
+end
+
+local function dealDamage(attacker, victim, amount, dmgType)
+	if not attacker or not victim then return end
+
+	-- FIX #1: безопасно получаем UserId для бота и игрока
+	local victimId   = getUserId(victim)
+	local attackerId = getUserId(attacker)
+	if not victimId then
+		warn("[Combat] dealDamage: victim has no UserId", tostring(victim))
+		return
+	end
+
+	local vState = matchState[victimId]
+	if not vState or not vState.alive then return end
+
+	dmgType = dmgType or "Normal"
+	local final = amount
+
+	-- 1. Щит из StatusEffects
+	final = StatusEffects.ProcessDamageWithShield(victimId, final)
+	if final <= 0 then return end
+
+	-- 2. Мультипликатор атакующего + дебаф цели
+	if attackerId then
+		final = final * StatusEffects.GetDamageMultiplier(attackerId)
+	end
+	final = final * (StatusEffects.GetDebuffMultiplier
+		and StatusEffects.GetDebuffMultiplier(victimId) or 1)
+
+	-- 3. GameModeModifiers
+	local Mods = getModifiers()
+	if Mods and isRealPlayer(attacker) and attacker.Character then
+		local ok, mult = pcall(Mods.GetDamageMultiplier, attacker.Character)
+		if ok then final = final * mult end
+	end
+
+	final = math.floor(final)
+	if final <= 0 then return end
+
+	-- 4. Применяем урон
+	if attackerId then
+		local aState = matchState[attackerId]
+		if aState then aState.damage = aState.damage + final end
+	end
+	vState.hp = math.max(0, vState.hp - final)
+
+	notifyDamage(attacker, victim, final, dmgType)
+
+	-- 5. Смерть
+	if vState.hp <= 0 then
+		vState.alive  = false
+		vState.deaths = vState.deaths + 1
+		if attackerId then
+			local aState = matchState[attackerId]
+			if aState then aState.kills = aState.kills + 1 end
+		end
+
+		-- FIX #2: правильно определяем время респавна из режима матча
+		local respawnTime = 5
+		local mods2 = getModifiers()
+		if mods2 and mods2.GetRespawnTime then
+			local matchMode = vState.mode or "Normal"
+			local ok, t = pcall(mods2.GetRespawnTime, matchMode)
+			if ok and type(t) == "number" then respawnTime = t end
+		end
+
+		if isBot(victim) then
+			if _G.TestBot and _G.TestBot.onDeath then
+				_G.TestBot.onDeath(attacker)
+			end
+		else
+			rPlayerDied:FireAllClients(victimId,
+				attackerId or 0, respawnTime)
+		end
+
+		StatusEffects.ClearPlayer(victimId)
+
 		local gm = getGameManager()
 		if gm and gm.OnKill then
-			gm.OnKill(attacker.UserId, victim.UserId, state.matchId)
+			pcall(gm.OnKill, attackerId, victimId, vState.matchId)
 		end
-		
-		-- Проверка победы (fallback для Normal-режима без kill limit)
-		local alivePlayers = {}
-		for uid, s in pairs(matchState) do
-			if s.alive and s.matchId == state.matchId then 
-				table.insert(alivePlayers, uid) 
+		local rs = getRoundService()
+		if rs and rs.OnKill then
+			pcall(rs.OnKill, attackerId, victimId, vState.matchId)
+		end
+	end
+end
+
+-- ============================================================
+-- ИСЦЕЛЕНИЕ
+-- ============================================================
+
+local function healPlayer(player, amount)
+	local uid = getUserId(player)
+	if not uid then return end
+	local state = matchState[uid]
+	if not state or not state.alive then return end
+	local healed = math.min(amount, state.maxHp - state.hp)
+	if healed <= 0 then return end
+	state.hp = state.hp + healed
+	if isRealPlayer(player) then
+		rHeal:FireClient(player, healed)
+		rUpdateHP:FireClient(player, state.hp, state.maxHp)
+		fireHUD(player, { hp = state.hp, maxHp = state.maxHp })
+	end
+end
+
+-- ============================================================
+-- M1 БАЗОВАЯ АТАКА
+-- ============================================================
+
+local M1_COOLDOWN = 0.55
+local M1_RANGE    = 8
+local M1_DAMAGE   = 8
+
+-- Все участники матча (включая бота), исключая excludeUserId
+local function getMatchParticipants(excludeUserId, matchId)
+	local result = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.UserId == excludeUserId then continue end
+		local s = matchState[p.UserId]
+		if s and s.alive and s.matchId == matchId then
+			table.insert(result, p)
+		end
+	end
+	if _G.TestBot then
+		local botId = _G.TestBot.getUserId and _G.TestBot.getUserId() or nil
+		if botId and botId ~= excludeUserId then
+			local s = matchState[botId]
+			if s and s.alive and s.matchId == matchId then
+				local proxy = _G.TestBot.getProxy and _G.TestBot.getProxy()
+				if proxy then table.insert(result, proxy) end
 			end
 		end
-		if #alivePlayers <= 1 then
-			MatchEnd:FireAllClients(alivePlayers[1] or 0)
-		end
 	end
+	return result
 end
 
--- Публичный метод для StatusEffects (DoT)
-local CombatSystem = {}
-
-function CombatSystem.dealDamageToPlayer(userId, amount, reason)
-	local victim = Players:GetPlayerByUserId(userId)
-	if not victim then return end
-	
-	-- Для DoT атакующим считается сама система или последний ударивший (упростим до системы)
-	dealDamage(victim, victim, amount, reason) 
-end
-
--- === Обработка скиллов ===
-UseSkill.OnServerEvent:Connect(function(player, skillKey)
+rM1Attack.OnServerEvent:Connect(function(player, mousePos)
 	local state = matchState[player.UserId]
 	if not state or not state.alive then return end
-	
-	-- Проверка стана
-	if StatusEffects.IsStunned(player.UserId) then
-		print("[Combat]", player.Name, "is stunned and cannot use skills")
-		return
-	end
-	
-	-- Проверка кулдауна
+	if StatusEffects.IsStunned(player.UserId) then return end
+
+	local now = tick()
+	if now - (state.lastM1 or 0) < M1_COOLDOWN then return end
+	state.lastM1 = now
+
+	local char = player.Character
+	if not char then return end
+	local origin = char.HumanoidRootPart.Position
 	local heroData = Characters[state.heroId]
-	if not heroData then return end
-	
-	local cdTable = cooldowns[player.UserId] or {}
-	local lastUsed = cdTable[skillKey] or 0
-	
-	local skillInfo = nil
-	if skillKey == "Q" then skillInfo = heroData.skills[1]
-	elseif skillKey == "E" then skillInfo = heroData.skills[2]
-	elseif skillKey == "R" then skillInfo = heroData.ultimate end
-	
-	if not skillInfo then return end
-	
-	-- GameModeModifiers cooldown multiplier
-	local cooldownTime = skillInfo.cooldown
-	local modifiers = getGameModeModifiers()
-	if modifiers and player.Character then
-		local cdMult = modifiers.GetCooldownMultiplier(player.Character)
-		cooldownTime = cooldownTime * cdMult
-	end
-	
-	if tick() - lastUsed < cooldownTime then
-		return
-	end
-	
-	-- Выполнение скилла
-	cdTable[skillKey] = tick()
-	cooldowns[player.UserId] = cdTable
-	
-	-- Визуализация для всех
-	SkillUsed:FireAllClients(player.UserId, skillKey)
-	
-	-- Логика из SkillHandlers
-	local handler = SkillHandlers[state.heroId]
-	if handler and handler[skillKey] then
-		handler[skillKey](player, {
-			dealDamage = dealDamage,
-			getState = function(uid) return matchState[uid] end
-		})
+	local dmg = (heroData and heroData.m1Damage) or M1_DAMAGE
+
+	for _, p in ipairs(getMatchParticipants(player.UserId, state.matchId)) do
+		if not p then continue end
+		local pHRP
+		if isBot(p) then
+			local m = _G.TestBot.getModel and _G.TestBot.getModel()
+			pHRP = m and m:FindFirstChild("HumanoidRootPart")
+		else
+			local pChar = p.Character
+			pHRP = pChar and pChar:FindFirstChild("HumanoidRootPart")
+		end
+		if pHRP and (pHRP.Position - origin).Magnitude <= M1_RANGE then
+			dealDamage(player, p, dmg, "Normal")
+		end
 	end
 end)
 
--- Вспомогательный метод для дефолтных скиллов
-function CombatSystem.defaultSkillHit(player, skillData)
-	-- Простая реализация хитбокса перед игроком
-	local character = player.Character
-	if not character then return end
-	
-	local hrp = character.HumanoidRootPart
-	local region = hrp.CFrame * CFrame.new(0, 0, -5)
-	
-	for _, otherPlayer in pairs(Players:GetPlayers()) do
-		if otherPlayer ~= player and otherPlayer.Character then
-			local dist = (otherPlayer.Character.HumanoidRootPart.Position - region.Position).Magnitude
-			if dist < 7 then
-				dealDamage(player, otherPlayer, skillData.damage or 10)
-			end
-		end
+-- ============================================================
+-- СКИЛЛЫ Q / E / F / R
+-- ============================================================
+
+local SLOT_CD_DEFAULT = { Q = 8, E = 12, F = 16, R = 30 }
+
+local function getSkillCooldown(heroId, slot)
+	local data = Characters[heroId]
+	if not data then return SLOT_CD_DEFAULT[slot] or 10 end
+	local idx = slot == "Q" and 1 or slot == "E" and 2 or slot == "F" and 3 or nil
+	if idx and data.skills and data.skills[idx] then
+		return data.skills[idx].cooldown or SLOT_CD_DEFAULT[slot]
 	end
+	if slot == "R" and data.ultimate then
+		return data.ultimate.cooldown or 30
+	end
+	return SLOT_CD_DEFAULT[slot] or 10
 end
 
--- === Системные функции ===
-function CombatSystem.initPlayer(player, heroData, matchId)
+--- Вернуть таблицу финальных кулдаунов с учётом режима для отправки на HUD
+local function buildSkillCooldownTable(heroId, character)
+	local Mods = getModifiers()
+	local cdMult = 1
+	if Mods and Mods.GetCooldownMultiplier and character then
+		local ok, m = pcall(Mods.GetCooldownMultiplier, character)
+		if ok then cdMult = m end
+	end
+	return {
+		Q = getSkillCooldown(heroId, "Q") * cdMult,
+		E = getSkillCooldown(heroId, "E") * cdMult,
+		F = getSkillCooldown(heroId, "F") * cdMult,
+		R = getSkillCooldown(heroId, "R") * cdMult,
+	}
+end
+
+rUseSkill.OnServerEvent:Connect(function(player, slot, targetPos)
+	local state = matchState[player.UserId]
+	if not state or not state.alive then
+		rSkillResult:FireClient(player, slot, false, 0, "dead")
+		return
+	end
+
+	if StatusEffects.IsStunned(player.UserId) then
+		rSkillResult:FireClient(player, slot, false, 0, "stunned")
+		return
+	end
+
+	if slot == "R" and state.ultCharge < 100 then
+		rSkillResult:FireClient(player, slot, false, 0, "ult_not_ready")
+		return
+	end
+
+	local cdTable  = cooldowns[player.UserId] or {}
+	local lastUsed = cdTable[slot] or 0
+	local baseCd   = getSkillCooldown(state.heroId, slot)
+
+	local Mods    = getModifiers()
+	local finalCd = baseCd
+	if Mods and Mods.GetCooldownMultiplier and player.Character then
+		local ok, mult = pcall(Mods.GetCooldownMultiplier, player.Character)
+		if ok then finalCd = finalCd * mult end
+	end
+
+	local elapsed = tick() - lastUsed
+	if elapsed < finalCd then
+		rSkillResult:FireClient(player, slot, false, finalCd - elapsed, "cooldown")
+		return
+	end
+
+	cdTable[slot] = tick()
+	cooldowns[player.UserId] = cdTable
+
+	if slot == "R" then
+		state.ultCharge = 0
+		rUltCharge:FireClient(player, 0)
+		rChargeUlt:FireClient(player, 0)
+		fireHUD(player, { ultCharge = 0 })
+	end
+
+	rSkillUsed:FireAllClients(player.UserId, slot, state.heroId, targetPos)
+
+	local api = {
+		dealDamage = dealDamage,
+		heal       = healPlayer,
+		getState   = function(uid) return matchState[uid] end,
+		fireTo     = function(p, remote, ...) remote:FireClient(p, ...) end,
+	}
+
+	local handler = SkillHandlers.GetHandler(state.heroId)
+	if handler and handler[slot] then
+		local ok2, err = pcall(handler[slot], player, targetPos, api)
+		if not ok2 then
+			warn(string.format("[Combat] Skill %s.%s error: %s",
+				state.heroId, slot, tostring(err)))
+		end
+	end
+
+	rSkillResult:FireClient(player, slot, true, finalCd, "ok")
+end)
+
+-- ============================================================
+-- ИНИЦИАЛИЗАЦИЯ / СБРОС
+-- ============================================================
+
+local CombatSystem = {}
+_G.CombatSystem = CombatSystem
+
+--- Инициализирует боевое состояние игрока и разсылает HUD + UpdateSkillCooldowns
+--- @param player    Player
+--- @param heroData  table   — данные из Characters.lua
+--- @param matchId   string  — идентификатор раунда
+--- @param mode      string  — "Normal" | "OneHit" | "Ranked"
+function CombatSystem.initPlayer(player, heroData, matchId, mode)
 	local maxHp = heroData and heroData.hp or 100
+	mode = mode or "Normal"
+
+	local Mods = getModifiers()
+	if Mods and Mods.ModifyHP then
+		local ok, newHp = pcall(Mods.ModifyHP, mode, maxHp)
+		if ok and type(newHp) == "number" then maxHp = newHp end
+	end
+
 	matchState[player.UserId] = {
-		hp = maxHp,
-		maxHp = maxHp,
-		heroId = heroData and heroData.id or "FlameRonin",
-		alive = true,
-		kills = 0,
-		damage = 0,
-		matchId = matchId or "default",
+		hp         = maxHp,
+		maxHp      = maxHp,
+		heroId     = heroData and heroData.id or "FlameRonin",
+		alive      = true,
+		kills      = 0,
+		deaths     = 0,
+		damage     = 0,
+		matchId    = matchId or "default",
+		mode       = mode,           -- FIX #2: храним режим в состоянии
+		speed      = heroData and heroData.speed or 16,
+		ultCharge  = 0,
+		lastM1     = 0,
 	}
 	cooldowns[player.UserId] = {}
 	StatusEffects.ClearPlayer(player.UserId)
+
+	-- Первоначальный HUD
+	fireHUD(player, { hp = maxHp, maxHp = maxHp, ultCharge = 0 })
+
+	-- FIX #3: отправляем реальные кулдауны конкретного героя
+	local cdTable = buildSkillCooldownTable(
+		heroData and heroData.id or "FlameRonin",
+		player.Character
+	)
+	local ok, err = pcall(function()
+		rUpdateSkillCDs:FireClient(player, cdTable)
+	end)
+	if not ok then warn("[Combat] UpdateSkillCooldowns fire error:", err) end
+end
+
+-- BUG-FIX: алиас revivePlayer = resetPlayer (используется RespawnHandler)
+function CombatSystem.revivePlayer(userId)
+	return CombatSystem.resetPlayer(userId)
+end
+
+-- BUG-FIX: алиас revivePlayer = resetPlayer (используется RespawnHandler)
+function CombatSystem.revivePlayer(userId)
+	return CombatSystem.resetPlayer(userId)
+end
+
+-- BUG-FIX: алиас revivePlayer = resetPlayer (используется RespawnHandler)
+function CombatSystem.revivePlayer(userId)
+	return CombatSystem.resetPlayer(userId)
+end
+
+-- BUG-FIX: алиас revivePlayer = resetPlayer (используется RespawnHandler)
+function CombatSystem.revivePlayer(userId)
+	return CombatSystem.resetPlayer(userId)
+end
+
+-- BUG-FIX: алиас revivePlayer = resetPlayer (используется RespawnHandler)
+function CombatSystem.revivePlayer(userId)
+	return CombatSystem.resetPlayer(userId)
+end
+
+function CombatSystem.resetPlayer(userId)
+	local state = matchState[userId]
+	if not state then return end
+	state.alive     = true
+	state.hp        = state.maxHp
+	state.ultCharge = 0
+	StatusEffects.ClearPlayer(userId)
+	cooldowns[userId] = {}
+	local p = Players:GetPlayerByUserId(userId)
+	if p then
+		fireHUD(p, { hp = state.maxHp, maxHp = state.maxHp, ultCharge = 0 })
+		local cdTable = buildSkillCooldownTable(state.heroId, p.Character)
+		pcall(function() rUpdateSkillCDs:FireClient(p, cdTable) end)
+	end
 end
 
 function CombatSystem.getState(userId)
 	return matchState[userId]
 end
 
+--- Применить урон DoT от сервера (жертва = "сама себя")
+function CombatSystem.dealDamageToPlayer(userId, amount, reason)
+	local victim = Players:GetPlayerByUserId(userId)
+	if not victim then return end
+	dealDamage(victim, victim, amount, reason or "DoT")
+end
+
+-- ============================================================
+-- УБОРКА
+-- ============================================================
+
 Players.PlayerRemoving:Connect(function(player)
 	matchState[player.UserId] = nil
-	cooldowns[player.UserId] = nil
+	cooldowns[player.UserId]  = nil
 	StatusEffects.ClearPlayer(player.UserId)
 end)
 
-_G.CombatSystem = CombatSystem
-
-return CombatSystem
+print("[CombatSystem] Initialized ✓")
