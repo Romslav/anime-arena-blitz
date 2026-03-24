@@ -202,16 +202,11 @@ end)
 -- REMOTE HANDLERS
 -- ============================================================
 
--- FIX-1: правильный порядок аргументов RoundStart
+-- ИСПРАВЛЕНИЕ #1: RoundStart теперь приходит в начале Preparation (интро "VS").
+-- canUseSkills НЕ включаем — это сделает rRoundState при переходе в Battle.
 rRoundStart.OnClientEvent:Connect(function(leftHeroId, leftName, rightHeroId, rightName, mode)
-	canUseSkills = true
-	isAlive      = true
-	isStunned    = false
-	isRooted     = false
-	stunExpireAt = 0
-	rootExpireAt = 0
-	restoreMovement(LocalPlayer.Character)
-	print("[SkillController] RoundStart → skills ENABLED | mode:", mode)
+	-- Интро запускается пока фаза = Preparation, бот ещё стоит на месте
+	print("[SkillController] VS Intro started | mode:", mode, "| waiting for Battle phase...")
 end)
 
 rRoundEnd.OnClientEvent:Connect(function()
@@ -220,8 +215,8 @@ rRoundEnd.OnClientEvent:Connect(function()
 end)
 
 rRoundState.OnClientEvent:Connect(function(phase)
-	-- FIX: Preparation не сбрасывает canUseSkills — его уже выставил RoundStart
-	-- Только Battle включает, Conclusion/Waiting выключает
+	-- ИСПРАВЛЕНИЕ #1: Только Battle включает скиллы — не RoundStart
+	-- Preparation не даёт прав атаковать, Conclusion/Waiting запрещает
 	if phase == "Battle" then
 		canUseSkills = true
 		isAlive      = true
@@ -244,7 +239,7 @@ rSkillResult.OnClientEvent:Connect(function(slot, success)
 	end
 end)
 
-rPlayerDied.OnClientEvent:Connect(function(victimId)
+rPlayerDied.OnClientEvent:Connect(function(victimId, killerId, respawnTime)
 	if victimId ~= LocalPlayer.UserId then return end
 	isAlive      = false
 	isStunned    = false
@@ -253,6 +248,31 @@ rPlayerDied.OnClientEvent:Connect(function(victimId)
 	rootExpireAt = 0
 	-- FIX-5: разблокируем Humanoid чтобы не застрять
 	restoreMovement(LocalPlayer.Character)
+
+	-- ============================================================
+	-- KILLER CAM: плавный перевод камеры на убийцу
+	-- ============================================================
+	if killerId then
+		local killerChar = nil
+		if killerId == -1 then
+			-- Убийца — бот: берём имя из _G.TestBot если доступно
+			local botName = (_G.TestBot and _G.TestBot.getName and _G.TestBot.getName()) or "[BOT] Rival"
+			killerChar = workspace:FindFirstChild(botName)
+		else
+			-- Убийца — реальный игрок
+			local killer = Players:GetPlayerByUserId(killerId)
+			if killer then killerChar = killer.Character end
+		end
+
+		if killerChar then
+			local hum = killerChar:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				workspace.CurrentCamera.CameraType    = Enum.CameraType.Follow
+				workspace.CurrentCamera.CameraSubject = hum
+				print("[SkillController] KillerCam → tracking:", killerChar.Name)
+			end
+		end
+	end
 end)
 
 -- BUG-G FIX: фильтруем по userId — FireAllClients передаёт его первым аргументом
@@ -312,13 +332,17 @@ LocalPlayer.CharacterAdded:Connect(function(char)
 	isRooted     = false
 	stunExpireAt = 0
 	rootExpireAt = 0
-	-- FIX: если были в бою — возрождаемся снова живым
 	if canUseSkills then
 		isAlive = true
 	end
 	local hum = char:WaitForChild("Humanoid", 5)
 	if not hum then return end
-	-- FIX: ждём полной инициализации перед выставкой скорости
+
+	-- KILLER CAM возврат: при каждом спавне возвращаем камеру на себя
+	workspace.CurrentCamera.CameraType    = Enum.CameraType.Custom
+	workspace.CurrentCamera.CameraSubject = hum
+	print("[SkillController] Camera restored to local player")
+
 	task.wait(0.3)
 	if not isStunned and not isRooted then
 		hum.WalkSpeed = getHeroSpeed()

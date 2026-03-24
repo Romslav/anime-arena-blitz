@@ -614,4 +614,64 @@ rMatchFound.OnClientEvent:Connect(function(matchInfo)
 	task.delay(1.2, LobbyUI.Hide)
 end)
 
+-- ============================================================
+-- ЛИДЕРБОРД: автообновление каждые 15 секунд
+-- Спрашиваем у DataStore топ-5 игроков по RP
+-- ============================================================
+
+local rGetLeaderboard = Remotes:WaitForChild("GetLeaderboard", 5)
+if rGetLeaderboard then
+	task.spawn(function()
+		while true do
+			local ok, data = pcall(function()
+				return rGetLeaderboard:InvokeServer()
+			end)
+			if ok and type(data) == "table" then
+				LobbyUI.UpdateLeaderboard(data)
+			end
+			task.wait(15)
+		end
+	end)
+end
+
+-- ============================================================
+-- ЛИДЕРБОРД: автообновление каждые 15 секунд
+-- Спрашиваем у DataStore топ-5 игроков по RP
+-- ============================================================
+
+local rGetLeaderboard = Remotes:WaitForChild("GetLeaderboard", 5)
+if rGetLeaderboard then
+	task.spawn(function()
+		while true do
+			local ok, data = pcall(function()
+				return rGetLeaderboard:InvokeServer()
+			end)
+			if ok and type(data) == "table" then
+				LobbyUI.UpdateLeaderboard(data)
+			end
+			task.wait(15)
+		end
+	end)
+end
+
+-- ============================================================
+-- ЛИДЕРБОРД: автообновление каждые 15 секунд
+-- Спрашиваем у DataStore топ-5 игроков по RP
+-- ============================================================
+
+local rGetLeaderboard = Remotes:WaitForChild("GetLeaderboard", 5)
+if rGetLeaderboard then
+	task.spawn(function()
+		while true do
+			local ok, data = pcall(function()
+				return rGetLeaderboard:InvokeServer()
+			end)
+			if ok and type(data) == "table" then
+				LobbyUI.UpdateLeaderboard(data)
+			end
+			task.wait(15)
+		end
+	end)
+end
+
 print("[LobbyUI] Initialized ✓")

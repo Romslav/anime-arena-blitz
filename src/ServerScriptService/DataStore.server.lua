@@ -334,5 +334,55 @@ for _, player in ipairs(Players:GetPlayers()) do
 	task.spawn(loadData, player)
 end
 
+-- ============================================================
+-- ЛИДЕРБОРД (ТОП-5 по RP)
+-- ============================================================
+
+local rGetLeaderboard = Remotes:FindFirstChild("GetLeaderboard")
+if rGetLeaderboard then
+	rGetLeaderboard.OnServerInvoke = function(player)
+		local sorted = {}
+		for uid, pd in pairs(playerData) do
+			local p = Players:GetPlayerByUserId(uid)
+			table.insert(sorted, {
+				name = p and p.Name or "Unknown",
+				rp   = pd.rp   or 0,
+				rank = pd.rank or "E",
+			})
+		end
+		table.sort(sorted, function(a, b) return a.rp > b.rp end)
+		local top5 = {}
+		for i = 1, math.min(5, #sorted) do
+			table.insert(top5, sorted[i])
+		end
+		return top5
+	end
+end
+
+-- ============================================================
+-- ЛИДЕРБОРД (ТОП-5 по RP)
+-- ============================================================
+
+local rGetLeaderboard = Remotes:FindFirstChild("GetLeaderboard")
+if rGetLeaderboard then
+	rGetLeaderboard.OnServerInvoke = function(player)
+		local sorted = {}
+		for uid, pd in pairs(playerData) do
+			local p = Players:GetPlayerByUserId(uid)
+			table.insert(sorted, {
+				name = p and p.Name or "Unknown",
+				rp   = pd.rp   or 0,
+				rank = pd.rank or "E",
+			})
+		end
+		table.sort(sorted, function(a, b) return a.rp > b.rp end)
+		local top5 = {}
+		for i = 1, math.min(5, #sorted) do
+			table.insert(top5, sorted[i])
+		end
+		return top5
+	end
+end
+
 print("[DataStore] Initialized ✓")
 return DataStore

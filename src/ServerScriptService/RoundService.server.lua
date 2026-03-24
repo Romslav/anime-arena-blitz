@@ -172,6 +172,47 @@ local function runPreparation(round)
 	round.phase = PHASE.PREPARATION
 	local duration = PHASE_DURATIONS.Preparation
 
+	-- ================================================================
+	-- ИСПРАВЛЕНИЕ #1: Отправляем RoundStart (интро "VS") ЗДЕСЬ, в начале
+	-- подготовки, а не в runBattle. Фаза остаётся "Preparation" —
+	-- бот не атакует пока игрок смотрит заставку.
+	-- ================================================================
+	do
+		local CharSvc = getCharacterService()
+		local function getParticipantHeroAndName(p)
+			local isBot = type(p) == "table" and p._isBot
+			if isBot then
+				local heroId = (_G.TestBot and _G.TestBot.getHeroId and _G.TestBot.getHeroId()) or "FlameRonin"
+				local name   = (_G.TestBot and _G.TestBot.getName  and _G.TestBot.getName())   or "[BOT]"
+				return heroId, name
+			end
+			local heroId = "FlameRonin"
+			if CharSvc and CharSvc.GetSelectedHero then
+				local hd = CharSvc.GetSelectedHero(p.UserId)
+				if hd then heroId = hd.id or heroId end
+			end
+			return heroId, p.Name
+		end
+
+		local left  = round.players[1]
+		local right = round.players[2]
+		local leftHeroId, leftName = getParticipantHeroAndName(left)
+		local rightHeroId, rightName
+		if right then
+			rightHeroId, rightName = getParticipantHeroAndName(right)
+		else
+			rightHeroId, rightName = leftHeroId, leftName
+		end
+
+		for _, p in ipairs(round.players) do
+			local isBot = type(p) == "table" and p._isBot
+			if not isBot and p and p.Parent then
+				-- Клиент получает интро, пока всё ещё на Preparation
+				RoundStart:FireClient(p, leftHeroId, leftName, rightHeroId, rightName, round.mode)
+			end
+		end
+	end
+
 	-- Заморозить игроков (боты пропускаются)
 	for _, p in ipairs(round.players) do
 		local isBot = type(p) == "table" and p._isBot
@@ -226,49 +267,7 @@ local function runBattle(round)
 	round.battleStartTick = tick()
 	round.battleDuration  = battleDuration
 
-	-- FIX: RoundStart шлём с правильными аргументами по контракту Remotes.lua:
-	-- (leftHeroId, leftName, rightHeroId, rightName, mode)
-	-- Для 2 игроков — явные left/right; для 1 (vs бот) — единственный игрок слева.
-	local CharSvc = getCharacterService()
-
-	local function getParticipantHeroAndName(p)
-		local isBot = type(p) == "table" and p._isBot
-		if isBot then
-			local heroId = (_G.TestBot and _G.TestBot.getHeroId and _G.TestBot.getHeroId()) or "FlameRonin"
-			local name   = (_G.TestBot and _G.TestBot.getName  and _G.TestBot.getName())   or "[BOT]"
-			return heroId, name
-		end
-		local heroId = "FlameRonin"
-		if CharSvc and CharSvc.GetSelectedHero then
-			local hd = CharSvc.GetSelectedHero(p.UserId)
-			if hd then heroId = hd.id or heroId end
-		end
-		return heroId, p.Name
-	end
-
-	-- Собираем участников (только реальные игроки + бот)
-	local left  = round.players[1]
-	local right = round.players[2]
-
-	local leftHeroId,  leftName  = getParticipantHeroAndName(left)
-	-- FIX-1: Lua multi-return в boolean-выражении обрезает до 1 значения —
-	-- без этого rightName ВСЕГДА получал leftName (имя левого игрока).
-	local rightHeroId, rightName
-	if right then
-		rightHeroId, rightName = getParticipantHeroAndName(right)
-	else
-		rightHeroId, rightName = leftHeroId, leftName
-	end
-
-	-- Шлём каждому игроку (боты пропускаются)
-	for _, p in ipairs(round.players) do
-		local isBot = type(p) == "table" and p._isBot
-		if not isBot and p and p.Parent then
-			RoundStart:FireClient(p, leftHeroId, leftName, rightHeroId, rightName, round.mode)
-		end
-	end
-
-	-- FIX: RoundStateChanged уже объявлен наверху — FindFirstChild убран
+	-- ИСПРАВЛЕНИЕ #1: RoundStart уже отправлен в runPreparation — здесь только меняем фазу
 	fireAllPlayers(RoundStateChanged, round, "Battle")
 
 	local timeLeft = battleDuration
