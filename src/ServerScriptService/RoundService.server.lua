@@ -482,7 +482,10 @@ function RoundService.StartRound(playerList, mode)
 	task.spawn(function()
 		-- 1. Подготовка
 		runPreparation(round)
-		if not activeRounds[roundId] then return end
+
+		-- ИСПРАВЛЕНИЕ #3: Строгая проверка перед запуском боя.
+		-- Если игрок умер во время Preparation, фаза стала Conclusion — не запускаем runBattle.
+		if not activeRounds[roundId] or round.phase ~= PHASE.PREPARATION then return end
 
 		-- 2. Бой
 		runBattle(round)

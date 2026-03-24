@@ -51,6 +51,7 @@ local botMaxHP   = 100
 local botCDs     = { Q=0, E=0, F=0, R=0 }
 local botUltCharge = 0
 local botLastM1  = 0
+local botGCD     = 0    -- ИСПРАВЛЕНИЕ #2: Глобальный кулдаун — предотвращает спам скиллами
 local hpFillPart = nil   -- Frame полоски HP
 
 -- botProxy — объект-заглушка для round.players + SkillHandlers + CombatSystem
@@ -373,6 +374,7 @@ local function botDoM1(target, dist)
 	local now = tick()
 	if now - botLastM1 < 0.6 then return end
 	botLastM1 = now
+	botGCD = tick() + 0.4  -- ИСПРАВЛЕНИЕ #2: небольшая пауза после удара рукой
 
 	local vState = CombatSystem.getState(target.UserId)
 	if not vState or not vState.alive then return end
@@ -431,6 +433,7 @@ local function botUseSkill(target, slot)
 	end
 
 	local api = makeSkillAPI()
+	botGCD = tick() + 0.8  -- ИСПРАВЛЕНИЕ #2: бот ждёт ~секунду после каста скилла
 	local ok, err = pcall(handler[slot], botProxy, targetPos, api)
 	if not ok then warn(string.format("[TestBot] Skill %s.%s error: %s", botHeroId, slot, tostring(err))) end
 
@@ -448,6 +451,17 @@ local SLOTS     = { "Q", "E", "F", "R" }
 
 RunService.Heartbeat:Connect(function(dt)
 	if not botAlive or not botModel then return end
+
+	-- ИСПРАВЛЕНИЕ #1: Бот не атакует во время фазы подготовки (GET READY!)
+	if _G.RoundService then
+		local phase = _G.RoundService.GetPhase(botMatchId)
+		if phase ~= "Battle" then return end
+	end
+
+	-- ИСПРАВЛЕНИЕ #2: Глобальный кулдаун — пауза между действиями бота
+	local now = tick()
+	if now < botGCD then return end
+
 	aiTimer = aiTimer - dt
 	if aiTimer > 0 then return end
 	aiTimer = AI_TICK
@@ -642,22 +656,61 @@ end)
 -- ============================================================
 
 _G.TestBot = {
-	-- Основное
-	forceStart  = forceStartBotMatch,
+
+	-- --------------------------------------------------------
+	-- Идентификация
+	-- --------------------------------------------------------
+	getUserId   = function() return BOT_CONFIG.BOT_USER_ID end,
+	getName     = function() return BOT_CONFIG.BOT_NAME end,
+	getHeroId   = function() return botHeroId end,     -- ИСПРАВЛЕНИЕ #4
+	getHeroData = function() return botHeroData end,   -- полный объект героя (hp, speed, skills, ...)
+
+	-- --------------------------------------------------------
+	-- Ссылки на объекты
+	-- --------------------------------------------------------
 	getProxy    = function() return botProxy end,
 	getModel    = function() return botModel end,
-	getUserId   = function() return BOT_CONFIG.BOT_USER_ID end,
+
+	-- --------------------------------------------------------
+	-- Состояние
+	-- --------------------------------------------------------
 	isAlive     = function() return botAlive end,
-	getName     = function() return BOT_CONFIG.BOT_NAME end,
-	-- HP
+
+	getHp       = function() return botHP end,
+	getMaxHp    = function() return botMaxHP end,
 	getHpPct    = function()
 		if botMaxHP <= 0 then return 0 end
 		return math.clamp(botHP / botMaxHP, 0, 1)
 	end,
-	syncHp      = syncBotHp,
-	-- События
-	onDeath     = onBotDeath,
-	-- matchId
+
+	-- Полный снимок состояния бота (для дебага / UI)
+	getState    = function()
+		return {
+			alive      = botAlive,
+			hp         = botHP,
+			maxHp      = botMaxHP,
+			hpPct      = botMaxHP > 0 and math.clamp(botHP / botMaxHP, 0, 1) or 0,
+			heroId     = botHeroId,
+			matchId    = botMatchId,
+			difficulty = BOT_CONFIG.DIFFICULTY,
+			ultCharge  = botUltCharge,
+		}
+	end,
+
+	-- --------------------------------------------------------
+	-- Настройка
+	-- --------------------------------------------------------
+	getDifficulty = function() return BOT_CONFIG.DIFFICULTY end,
+	setDifficulty = function(diff)
+		if not DIFFICULTY_PARAMS[diff] then
+			warn("[TestBot] Unknown difficulty:", diff, "— valid: Easy | Normal | Hard")
+			return
+		end
+		BOT_CONFIG.DIFFICULTY = diff
+		print("[TestBot] Difficulty changed to:", diff)
+	end,
+
+	getMatchId  = function() return botMatchId end,
 	setMatchId  = function(id)
 		botMatchId = id
 		if CombatSystem then
@@ -665,6 +718,55 @@ _G.TestBot = {
 			if s then s.matchId = id end
 		end
 	end,
+
+	-- --------------------------------------------------------
+	-- HP-синхронизация
+	-- --------------------------------------------------------
+	syncHp      = syncBotHp,
+
+	-- --------------------------------------------------------
+	-- Спавн / деспавн / ресет
+	-- --------------------------------------------------------
+
+	-- Форсировать респавн бота вне цикла раунда (для тестирования)
+	respawn     = function()
+		if botAlive then return end
+		spawnBot()
+	end,
+
+	-- Удалить модель и сбросить состояние (например, при завершении раунда)
+	despawn     = function()
+		if botModel then
+			botModel:Destroy()
+			botModel = nil
+		end
+		botAlive = false
+	end,
+
+	-- Полный ресет (для нового матча без перезагрузки)
+	reset       = function()
+		if botModel then botModel:Destroy(); botModel = nil end
+		botAlive     = false
+		botHeroId    = nil
+		botHeroData  = nil
+		botHP        = 100
+		botMaxHP     = 100
+		botCDs       = { Q=0, E=0, F=0, R=0 }
+		botUltCharge = 0
+		botLastM1    = 0
+		botGCD       = 0
+		print("[TestBot] State reset ✓")
+	end,
+
+	-- --------------------------------------------------------
+	-- События
+	-- --------------------------------------------------------
+	onDeath     = onBotDeath,
+
+	-- --------------------------------------------------------
+	-- Запуск матча
+	-- --------------------------------------------------------
+	forceStart  = forceStartBotMatch,
 }
 
 print(string.format(
