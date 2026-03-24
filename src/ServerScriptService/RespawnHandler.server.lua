@@ -36,6 +36,16 @@ local function onCharacterDeath(player)
 	local CharSvc = getCharSvc()
 	local Combat  = getCombat()
 
+	-- FIX: проверяем, идёт ли раунд вообще
+	-- В режиме 1х1 после смерти раунд заканчивается — респавн не нужен
+	if _G.RoundService then
+		local _, round = _G.RoundService.GetPlayerRound(player.UserId)
+		if not round or round.phase == "Conclusion" or round.phase == "Waiting" then
+			print(string.format("[RespawnHandler] %s died but round is over — no respawn", player.Name))
+			return
+		end
+	end
+
 	-- Время респавна из режима
 	local respawnTime = 5
 	if Mods and Mods.GetRespawnTime then
@@ -47,6 +57,14 @@ local function onCharacterDeath(player)
 		player.Name, respawnTime, matchData.mode))
 
 	task.wait(respawnTime)
+
+	-- FIX: проверяем ещё раз после ожидания — раунд мог закончиться за время ожидания
+	if _G.RoundService then
+		local _, round = _G.RoundService.GetPlayerRound(player.UserId)
+		if not round or round.phase == "Conclusion" or round.phase == "Waiting" then
+			return
+		end
+	end
 
 	-- Игрок мог выйти за время ожидания
 	if not player or not player.Parent then return end
@@ -88,14 +106,16 @@ local function onCharacterDeath(player)
 
 	-- Применяем статы героя (страховка если CharacterService не успел)
 	if CharSvc then
-		local heroData = CharSvc.GetSelectedHero(player.UserId)
-		if heroData then
-			CharSvc.ApplyStats(char, heroData)
-			if Mods and Mods.ApplyToPlayer then
-				pcall(Mods.ApplyToPlayer, player, heroData, matchData.mode)
+	local heroData = CharSvc.GetSelectedHero(player.UserId)
+	if heroData then
+	CharSvc.ApplyStats(char, heroData)
+	-- BUG-7 FIX: аргументы были перепутаны (heroData на месте modeId).
+	-- Подпись ApplyToPlayer: (player, modeId, heroData)
+	if Mods and Mods.ApplyToPlayer then
+	  pcall(Mods.ApplyToPlayer, player, matchData.mode, heroData)
+	  end
 			end
 		end
-	end
 
 	-- Восстанавливаем alive + hp в CombatSystem
 	if Combat then

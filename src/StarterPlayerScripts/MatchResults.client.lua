@@ -340,12 +340,12 @@ local function showResults(data)
 
 	-- Баннер
 	if isDraw then
-		resultBanner.Text       = "DRAW"
+		resultBanner.Text       = "НИЧЬЯ"
 		resultBanner.TextColor3 = Color3.fromRGB(180,180,220)
 		accentBar.BackgroundColor3 = Color3.fromRGB(100,100,180)
 		continueBtn.BackgroundColor3 = Color3.fromRGB(80,80,160)
 	elseif isWinner then
-		resultBanner.Text       = "VICTORY!"
+		resultBanner.Text       = "ПОБЕДА!"
 		resultBanner.TextColor3 = Color3.fromRGB(255,220,60)
 		accentBar.BackgroundColor3 = Color3.fromRGB(255,180,0)
 		continueBtn.BackgroundColor3 = Color3.fromRGB(40,140,255)
@@ -353,7 +353,7 @@ local function showResults(data)
 			for _ = 1, 3 do spawnConfetti(); task.wait(0.4) end
 		end)
 	else
-		resultBanner.Text       = "DEFEAT"
+		resultBanner.Text       = "ПОРАЖЕНИЕ"
 		resultBanner.TextColor3 = Color3.fromRGB(220,80,60)
 		accentBar.BackgroundColor3 = Color3.fromRGB(200,50,50)
 		continueBtn.BackgroundColor3 = Color3.fromRGB(160,40,40)
@@ -414,6 +414,28 @@ local function closeResults()
 			if p and p.Parent then p:Destroy() end
 		end
 		table.clear(winParticles)
+
+		-- FIX: возвращаем в лобби после нажатия ПРОДОЛЖИТЬ
+		-- 1. Сбрасываем состояние матча
+		if _G.ClientState then
+			_G.ClientState.inMatch   = false
+			_G.ClientState.matchId   = nil
+			_G.ClientState.matchMode = nil
+		end
+		-- 2. Скрываем HUD
+		local hudGui = LocalPlayer.PlayerGui:FindFirstChild("HUD")
+		if hudGui then hudGui.Enabled = false end
+		-- 3. Показываем лобби (с анимацией)
+		if _G.LobbyUI then
+			_G.LobbyUI.Show()
+		else
+			local lobbyGui = LocalPlayer.PlayerGui:FindFirstChild("LobbyUI")
+			if lobbyGui then lobbyGui.Enabled = true end
+		end
+		-- 4. Запрашиваем сервер вернуть персонажа в лобби (через LeaveQueue Remote)
+		local rLeave = ReplicatedStorage:FindFirstChild("Remotes")
+			and ReplicatedStorage.Remotes:FindFirstChild("LeaveQueue")
+		if rLeave then rLeave:FireServer() end
 	end)
 end
 

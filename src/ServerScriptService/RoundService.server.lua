@@ -251,9 +251,14 @@ local function runBattle(round)
 	local right = round.players[2]
 
 	local leftHeroId,  leftName  = getParticipantHeroAndName(left)
-	local rightHeroId, rightName = right
-		and getParticipantHeroAndName(right)
-		or  leftHeroId, leftName   -- зеркало если один участник
+	-- FIX-1: Lua multi-return в boolean-выражении обрезает до 1 значения —
+	-- без этого rightName ВСЕГДА получал leftName (имя левого игрока).
+	local rightHeroId, rightName
+	if right then
+		rightHeroId, rightName = getParticipantHeroAndName(right)
+	else
+		rightHeroId, rightName = leftHeroId, leftName
+	end
 
 	-- Шлём каждому игроку (боты пропускаются)
 	for _, p in ipairs(round.players) do
@@ -278,8 +283,10 @@ local function runBattle(round)
 		end
 
 		-- Проверка победы по выбыванию (не OneHit режим)
+		-- BUG-4 FIX: заменили IsOneHitMode(character) на IsOneHitModeId(modeId) —
+		-- старая версия ждала Instance и крашалась на строке.
 		local Mods = getGameModeModifiers()
-		if not (Mods and Mods.IsOneHitMode and Mods.IsOneHitMode(round.mode)) then
+		if not (Mods and Mods.IsOneHitModeId and Mods.IsOneHitModeId(round.mode)) then
 			local alive = countAlivePlayers(round)
 			if #alive <= 1 then
 				local winner = alive[1] or nil
@@ -442,7 +449,15 @@ function RoundService.StartRound(playerList, mode)
 			heroData = heroData or { id = "FlameRonin", name = "Flame Ronin", hp = 120, m1Damage = 8, speed = 16 }
 
 			if Modifiers and Modifiers.ApplyToPlayer then
-				Modifiers.ApplyToPlayer(p, heroData, mode)
+			-- BUG-3 FIX: аргументы были перепутаны.
+			-- Подпись ApplyToPlayer: (player, modeId, heroData)
+			Modifiers.ApplyToPlayer(p, mode, heroData)
+			end
+
+			-- FIX: применяем статы героя на персонаже до initPlayer,
+			-- чтобы WalkSpeed был выставлен правильно с самого начала
+			if CharSvc and CharSvc.ApplyStats and p.Character then
+			CharSvc.ApplyStats(p.Character, heroData)
 			end
 
 			if Combat and Combat.initPlayer then

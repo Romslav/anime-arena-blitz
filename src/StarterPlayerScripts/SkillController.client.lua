@@ -16,6 +16,21 @@ local RunService       = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = workspace.CurrentCamera
 
+-- FIX: ждём инициализации ClientManager (разделяемый _G.ClientState)
+-- Порядок запуска LocalScript-ов не гарантирован, ClientState может ещё не существовать
+task.defer(function()
+	local timeout = 10
+	local waited  = 0
+	while not _G.ClientState and waited < timeout do
+		task.wait(0.1)
+		waited = waited + 0.1
+	end
+	if not _G.ClientState then
+		warn("[SkillController] _G.ClientState not found after ", timeout, "s — using defaults")
+		_G.ClientState = { heroSpeed = 16 }
+	end
+end)
+
 local Remotes        = ReplicatedStorage:WaitForChild("Remotes")
 local rUseSkill      = Remotes:WaitForChild("UseSkill",          10)
 local rM1Attack      = Remotes:WaitForChild("M1Attack",          10)

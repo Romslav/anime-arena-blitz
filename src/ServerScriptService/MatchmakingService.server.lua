@@ -12,7 +12,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 -- КОНФИГ
 -- ============================================================
 
-local BOT_WAIT_TIME   = 30   -- секунд до подключения бота
+local BOT_WAIT_TIME    = 30   -- секунд до подключения бота
+local HERO_SELECT_TIME = 25   -- секунд на выбор героя (=таймер в HeroSelector.client)
 
 -- ============================================================
 -- REMOTES
@@ -71,26 +72,44 @@ local function startMatch(playerA, playerB, mode)
 
 	local matchId = string.format("match_%d", math.floor(tick()))
 
-	-- Отправляем обоим
+	-- Шлём MatchFound — клиенты откроют HeroSelector
 	for _, p in ipairs({ playerA, playerB }) do
 		if p and p.Parent then
 			rMatchFound:FireClient(p, { matchId = matchId, mode = mode or "Normal" })
 		end
 	end
 
-	-- Стартуем через RoundService
-	task.defer(function()
+	-- FIX: ждём выбора героев (поллинг) или истечения таймера,
+	-- ТОЛЬКО ПОТОМ запускаем раунд
+	task.spawn(function()
+		-- Ждём инициализации RoundService
 		for _ = 1, 10 do
 			if _G.RoundService then break end
 			task.wait(0.5)
 		end
-		if _G.RoundService then
+
+		-- Поллинг: оба выбрали героя — или вышел таймер
+		local waited = 0
+		while waited < HERO_SELECT_TIME do
+			task.wait(1)
+			waited += 1
+			if not playerA.Parent or not playerB.Parent then return end
+			local hs   = _G.HeroSelector
+			local selA = hs and hs.getSelected(playerA.UserId)
+			local selB = hs and hs.getSelected(playerB.UserId)
+			if selA and selB then
+				print(string.format("[Matchmaking] Both heroes selected after %ds", waited))
+				break
+			end
+		end
+
+		if playerA.Parent and playerB.Parent and _G.RoundService then
 			_G.RoundService.StartRound({ playerA, playerB }, mode or "Normal")
 		end
 	end)
 
-	print(string.format("[Matchmaking] Match started: %s vs %s (mode: %s)",
-		playerA.Name, playerB.Name, mode or "Normal"))
+	print(string.format("[Matchmaking] Match found: %s vs %s (mode: %s) — waiting up to %ds for hero selection",
+		playerA.Name, playerB.Name, mode or "Normal", HERO_SELECT_TIME))
 end
 
 -- ============================================================
@@ -100,24 +119,34 @@ end
 local function startBotMatch(player, mode)
 	removeFromQueue(player.UserId)
 
-	-- Уведомляем игрока
 	rMatchFound:FireClient(player, { matchId = "bot_match", mode = mode or "Normal", isBot = true })
-	rShowNotif:FireClient(player,
-		"🤖 Оппонент не найден. Подключаем бота...", "warning")
+	rShowNotif:FireClient(player, "🤖 Оппонент не найден. Подключаем бота...", "warning")
 
-	-- Даём TestBot сигнал запуститься
-	task.defer(function()
+	-- FIX: ждём выбора героя (поллинг), только потом стартуем бот-матч
+	task.spawn(function()
+		local waited = 0
+		while waited < HERO_SELECT_TIME do
+			task.wait(1)
+			waited += 1
+			if not player.Parent then return end
+			local hs = _G.HeroSelector
+			if hs and hs.getSelected(player.UserId) then
+				print(string.format("[Matchmaking] Hero selected after %ds, starting bot match", waited))
+				break
+			end
+		end
+
 		for _ = 1, 20 do
 			if _G.TestBot then break end
 			task.wait(0.5)
 		end
-		if _G.TestBot and _G.TestBot.forceStart then
+		if player.Parent and _G.TestBot and _G.TestBot.forceStart then
 			_G.TestBot.forceStart(player, mode)
 		end
 	end)
 
-	print(string.format("[Matchmaking] Bot match started for %s (waited %ds, mode: %s)",
-		player.Name, BOT_WAIT_TIME, mode or "Normal"))
+	print(string.format("[Matchmaking] Bot match queued for %s (mode: %s) — waiting up to %ds for hero selection",
+		player.Name, mode or "Normal", HERO_SELECT_TIME))
 end
 
 -- ============================================================

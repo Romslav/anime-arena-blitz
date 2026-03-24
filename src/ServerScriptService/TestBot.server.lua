@@ -24,9 +24,10 @@ local BOT_CONFIG = {
 }
 
 local DIFFICULTY_PARAMS = {
-	Easy   = { reaction=1.4, aggression=0.3, dodgeChance=0.10, m1Range=6, skillChance=0.20, strafeRange=8  },
-	Normal = { reaction=0.7, aggression=0.6, dodgeChance=0.30, m1Range=7, skillChance=0.50, strafeRange=10 },
-	Hard   = { reaction=0.2, aggression=0.9, dodgeChance=0.60, m1Range=8, skillChance=0.80, strafeRange=12 },
+	-- FIX: reaction увеличен, m1Range уменьшен — бот больше не бьёт сквозь стены
+	Easy   = { reaction=2.0, aggression=0.25, dodgeChance=0.08, m1Range=5, skillChance=0.15, strafeRange=8  },
+	Normal = { reaction=1.2, aggression=0.50, dodgeChance=0.25, m1Range=6, skillChance=0.35, strafeRange=10 },
+	Hard   = { reaction=0.5, aggression=0.80, dodgeChance=0.50, m1Range=7, skillChance=0.65, strafeRange=12 },
 }
 
 local HERO_LIST = {

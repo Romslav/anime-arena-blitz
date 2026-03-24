@@ -19,74 +19,70 @@ local MODES = {
 		name = "⚡ ONE HIT MODE",
 		description = "1 HP. Instant kills. Pure skill.",
 		color = Color3.fromRGB(255, 50, 50),
-		
-		-- Stat modifiers
+
 		stats = {
-			hp = 1,              -- Everyone has 1 HP
-			speedMultiplier = 1.5,  -- 50% faster movement
-			damageMultiplier = 999, -- Any hit = instant kill
-			cooldownMultiplier = 0.5, -- Skills recharge 2x faster
-			respawnTime = 3,     -- Fast respawn (3 seconds)
-			ultChargeRate = 2.0, -- Ult charges 2x faster
+			hp = 1,
+			speedMultiplier = 1.5,
+			damageMultiplier = 999,
+			cooldownMultiplier = 0.5,
+			respawnTime = 3,
+			ultChargeRate = 2.0,
 		},
-		
-		-- Special rules
+
 		rules = {
-			disableDefensiveSkills = true, -- No shields/blocks
+			disableDefensiveSkills = true,
 			instantKillOnHit = true,
-			showHitIndicator = true,  -- Visual hit confirmation
+			showHitIndicator = true,
 			enableKillStreaks = true,
 			maxKillStreak = 10,
 		},
-		
-		-- Rewards multiplier
+
 		rewards = {
 			rpMultiplier = 1.5,
 			coinsMultiplier = 1.3,
 		},
-		
-		-- Match settings
+
 		match = {
-			duration = 120,  -- 2 minutes
+			duration = 120,
 			minPlayers = 2,
 			maxPlayers = 8,
-			firstTo = 15,    -- First to 15 kills wins
+			firstTo = 15,
 		},
 	},
-	
+
 	-- === NORMAL MODE (baseline) ===
 	Normal = {
 		id = "Normal",
 		name = "⚔️ NORMAL MODE",
 		description = "Standard battle. Balanced gameplay.",
 		color = Color3.fromRGB(100, 200, 255),
-		
+
 		stats = {
-			hp = nil,  -- Use character default
+			hp = nil,
 			speedMultiplier = 1.0,
 			damageMultiplier = 1.0,
 			cooldownMultiplier = 1.0,
 			respawnTime = 5,
 			ultChargeRate = 1.0,
 		},
-		
+
 		rules = {
 			disableDefensiveSkills = false,
 			instantKillOnHit = false,
 			showHitIndicator = false,
 			enableKillStreaks = false,
 		},
-		
+
 		rewards = {
 			rpMultiplier = 1.0,
 			coinsMultiplier = 1.0,
 		},
-		
+
 		match = {
-			duration = 180,  -- 3 minutes
+			duration = 180,
 			minPlayers = 2,
 			maxPlayers = 6,
-			firstTo = nil,   -- Time-based only
+			firstTo = nil,
 		},
 	},
 }
@@ -108,23 +104,20 @@ end
 function GameModeModifiers.ApplyToPlayer(player, modeId, heroData)
 	local mode = GameModeModifiers.GetMode(modeId)
 	if not mode then return end
-	
+
 	local character = player.Character
 	if not character then return end
-	
+
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return end
-	
-	-- Apply HP override
+
 	local maxHP = mode.stats.hp or heroData.hp or 100
 	humanoid.MaxHealth = maxHP
 	humanoid.Health = maxHP
-	
-	-- Apply speed multiplier
+
 	local baseSpeed = heroData.speed or 16
 	humanoid.WalkSpeed = baseSpeed * mode.stats.speedMultiplier
-	
-	-- Store mode data on character for combat system
+
 	local modeTag = character:FindFirstChild("GameModeTag")
 	if not modeTag then
 		modeTag = Instance.new("StringValue")
@@ -132,30 +125,29 @@ function GameModeModifiers.ApplyToPlayer(player, modeId, heroData)
 		modeTag.Parent = character
 	end
 	modeTag.Value = modeId
-	
-	-- Store modifiers for damage calculations
+
 	local modData = character:FindFirstChild("ModeModifiers")
 	if not modData then
 		modData = Instance.new("Folder")
 		modData.Name = "ModeModifiers"
 		modData.Parent = character
 	end
-	
+
 	local dmgMult = Instance.new("NumberValue")
 	dmgMult.Name = "DamageMultiplier"
 	dmgMult.Value = mode.stats.damageMultiplier
 	dmgMult.Parent = modData
-	
+
 	local cdMult = Instance.new("NumberValue")
 	cdMult.Name = "CooldownMultiplier"
 	cdMult.Value = mode.stats.cooldownMultiplier
 	cdMult.Parent = modData
-	
+
 	local ultMult = Instance.new("NumberValue")
 	ultMult.Name = "UltChargeRate"
 	ultMult.Value = mode.stats.ultChargeRate
 	ultMult.Parent = modData
-	
+
 	print("[GameModeModifiers] Applied", mode.name, "to", player.Name, "| HP:", maxHP, "Speed:", humanoid.WalkSpeed)
 end
 
@@ -199,6 +191,26 @@ function GameModeModifiers.IsOneHitMode(character)
 	if not character then return false end
 	local modeTag = character:FindFirstChild("GameModeTag")
 	return modeTag and modeTag.Value == "OneHit"
+end
+
+-- BUG-4 FIX: версия для RoundService, который передаёт round.mode (строку)
+function GameModeModifiers.IsOneHitModeId(modeId)
+	return modeId == "OneHit"
+end
+
+-- BUG-5 FIX: RoundService через Modifiers.GetBattleDuration(round.mode)
+function GameModeModifiers.GetBattleDuration(modeId)
+	local mode = GameModeModifiers.GetMode(modeId)
+	return mode and mode.match and mode.match.duration or 180
+end
+
+-- BUG-6 FIX: CombatSystem.initPlayer вызывает Mods.ModifyHP(mode, maxHp)
+function GameModeModifiers.ModifyHP(modeId, baseHp)
+	local mode = GameModeModifiers.GetMode(modeId)
+	if mode and mode.stats and mode.stats.hp then
+		return mode.stats.hp
+	end
+	return baseHp
 end
 
 -- ============================================================

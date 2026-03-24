@@ -35,6 +35,7 @@ local rUpdateSkillCDs   = Remotes:WaitForChild("UpdateSkillCooldowns")
 -- }
 local matchState = {}
 local cooldowns  = {}  -- cooldowns[userId][slot] = lastUsedTick
+local m1Combo    = {}  -- m1Combo[userId] = количество попаданий M1 в этом раунде (для пассивок)
 
 -- ============================================================
 -- ВСПОМОГАТЕЛЬНЫЕ
@@ -287,6 +288,36 @@ rM1Attack.OnServerEvent:Connect(function(player, mousePos)
 		end
 		if pHRP and (pHRP.Position - origin).Magnitude <= M1_RANGE then
 			dealDamage(player, p, dmg, "Normal")
+
+			local victimId = getUserId(p)
+
+			-- FIX-5: JadeSentinel passive — jadeHits накапливаются на цели (макс 3)
+			if state.heroId == "JadeSentinel" then
+				local vs = victimId and matchState[victimId]
+				if vs then vs.jadeHits = math.min((vs.jadeHits or 0) + 1, 3) end
+			end
+
+			-- M1 пассивки героев:
+			-- FlameRonin  — каждый 5-й M1 (финишер комбо) поджигает цель
+			-- ThunderMonk — каждый 3-й M1 накладывает мини-стан
+			-- NeonBlitz   — каждый 4-й M1 стреляет неон-пульс (+8 урона)
+			-- BloodSage   — каждый M1 высасывает 5 HP (пассивное лечение)
+			local heroId = state.heroId
+			m1Combo[player.UserId] = (m1Combo[player.UserId] or 0) + 1
+			local combo = m1Combo[player.UserId]
+
+			if heroId == "FlameRonin" and combo % 5 == 0 then
+				if victimId then StatusEffects.ApplyBurn(victimId, 3, 2) end
+
+			elseif heroId == "ThunderMonk" and combo % 3 == 0 then
+				if victimId then StatusEffects.ApplyStun(victimId, 0.35) end
+
+			elseif heroId == "NeonBlitz" and combo % 4 == 0 then
+				dealDamage(player, p, 8, "Normal")   -- неон-пульс
+
+			elseif heroId == "BloodSage" then
+				healPlayer(player, 5)                -- дрейн 5 HP
+			end
 		end
 	end
 end)
@@ -444,27 +475,7 @@ function CombatSystem.initPlayer(player, heroData, matchId, mode)
 	if not ok then warn("[Combat] UpdateSkillCooldowns fire error:", err) end
 end
 
--- BUG-FIX: алиас revivePlayer = resetPlayer (используется RespawnHandler)
-function CombatSystem.revivePlayer(userId)
-	return CombatSystem.resetPlayer(userId)
-end
-
--- BUG-FIX: алиас revivePlayer = resetPlayer (используется RespawnHandler)
-function CombatSystem.revivePlayer(userId)
-	return CombatSystem.resetPlayer(userId)
-end
-
--- BUG-FIX: алиас revivePlayer = resetPlayer (используется RespawnHandler)
-function CombatSystem.revivePlayer(userId)
-	return CombatSystem.resetPlayer(userId)
-end
-
--- BUG-FIX: алиас revivePlayer = resetPlayer (используется RespawnHandler)
-function CombatSystem.revivePlayer(userId)
-	return CombatSystem.resetPlayer(userId)
-end
-
--- BUG-FIX: алиас revivePlayer = resetPlayer (используется RespawnHandler)
+-- FIX-6: revivePlayer был объявлен 5 раз подряд — удаляем дубликаты, оставляем 1
 function CombatSystem.revivePlayer(userId)
 	return CombatSystem.resetPlayer(userId)
 end
@@ -475,6 +486,8 @@ function CombatSystem.resetPlayer(userId)
 	state.alive     = true
 	state.hp        = state.maxHp
 	state.ultCharge = 0
+	state.jadeHits  = 0    -- сброс пассивки JadeSentinel при респавне
+	m1Combo[userId] = 0    -- сброс M1-комбо при респавне
 	StatusEffects.ClearPlayer(userId)
 	cooldowns[userId] = {}
 	local p = Players:GetPlayerByUserId(userId)
@@ -496,6 +509,11 @@ function CombatSystem.dealDamageToPlayer(userId, amount, reason)
 	dealDamage(victim, victim, amount, reason or "DoT")
 end
 
+-- BUG-2 FIX: TestBot.server.lua вызывает _G.CombatSystem.applyDamage(att, vic, amount, dmgType).
+-- dealDamage — локальная функция, снаружи недоступна.
+-- Экспортируем её как публичный метод CombatSystem.
+CombatSystem.applyDamage = dealDamage
+
 -- ============================================================
 -- УБОРКА
 -- ============================================================
@@ -503,6 +521,7 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	matchState[player.UserId] = nil
 	cooldowns[player.UserId]  = nil
+	m1Combo[player.UserId]    = nil
 	StatusEffects.ClearPlayer(player.UserId)
 end)
 

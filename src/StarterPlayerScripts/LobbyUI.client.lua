@@ -593,9 +593,25 @@ rRankUpdate.OnClientEvent:Connect(function(oldRank, newRank, newRP)
 	pRPLabel.Text         = tostring(newRP or 0) .. " RP"
 end)
 
--- Статус очереди
-rQueueStatus.OnClientEvent:Connect(function(position, total)
-	queueDots.Text = string.format("Queue: #%d of %d", position, total)
+-- Статус очереди -- FIX: botIn параметр + русский текст
+rQueueStatus.OnClientEvent:Connect(function(position, total, botIn)
+	if botIn and botIn > 0 then
+		queueDots.Text = string.format("Бот войдёт через %dс", botIn)
+	elseif botIn == 0 then
+		queueDots.Text = "Подключаем бота..."
+	else
+		queueDots.Text = string.format("Очередь: #%d из %d", position, total)
+	end
+end)
+
+-- FIX: Матч найден — русская надпись
+rMatchFound.OnClientEvent:Connect(function(matchInfo)
+	inQueue = false
+	if queueTimerThread then task.cancel(queueTimerThread) end
+	stopDots()
+	queueTitle.Text = "МАТЧ НАЙДЕН!"
+	queueTimer.Text = ""
+	task.delay(1.2, LobbyUI.Hide)
 end)
 
 print("[LobbyUI] Initialized ✓")

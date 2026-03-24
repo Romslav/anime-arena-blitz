@@ -209,9 +209,10 @@ function CharacterService.SpawnWithHero(player, heroData)
 		if not character or not character.Parent then return end
 		CharacterService.ApplyStats(character, heroData)
 		rCharacterSpawned:FireAllClients(player.UserId, heroData.id, heroData.name)
-		if _G.CombatSystem then
-			_G.CombatSystem.initPlayer(player, heroData)
-		end
+		-- FIX: НЕ вызываем CombatSystem.initPlayer здесь —
+		-- это делает RoundService.StartRound с правильным matchId и mode.
+		-- Двойной initPlayer перезаписывал состояние игрока matchId="default",
+		-- из-за чего M1/скиллы тихо игнорировались (участники не совпадали по matchId).
 	end
 
 	-- BUG-FIX: НЕ вызываем LoadCharacter сами — RespawnHandler делает это
@@ -239,8 +240,10 @@ function CharacterService.SpawnWithMode(player, heroData, gameMode, matchId)
 		end
 
 		rCharacterSpawned:FireAllClients(player.UserId, heroData.id, heroData.name)
-
-		if _G.CombatSystem then
+		-- FIX: НЕ вызываем CombatSystem.initPlayer здесь —
+		-- это делает RoundService.StartRound с правильным matchId и mode.
+		-- Если matchId передан (вызов через GameManager.StartMatch), инициализируем.
+		if _G.CombatSystem and matchId then
 			_G.CombatSystem.initPlayer(player, heroData, matchId, gameMode)
 		end
 	end
@@ -265,6 +268,12 @@ rSelectHero.OnServerEvent:Connect(function(player, heroId)
 	local heroData = CharacterService.GetHeroData(heroId)
 	selectedHeroes[player.UserId] = heroData
 	rHeroSelected:FireClient(player, heroData.id, heroData.name)
+
+	-- FIX: синхронизуем с HeroSelector — оба слушают SelectHero, храним в обеих
+	-- чтобы RoundService.StartRound нашёл героя через любой из двух API
+	if _G.HeroSelector and _G.HeroSelector.setSelected then
+		_G.HeroSelector.setSelected(player.UserId, heroData)
+	end
 
 	print(string.format("[CharacterService] %s selected: %s", player.Name, heroData.name))
 end)

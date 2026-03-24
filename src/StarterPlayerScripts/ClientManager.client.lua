@@ -96,8 +96,10 @@ rMatchEnd.OnClientEvent:Connect(function(resultData)
 	ClientState.matchId = nil
 end)
 
-rRoundStart.OnClientEvent:Connect(function(mode, roundId)
-	ClientState.inMatch = true
+-- FIX: правильная сигнатура RoundStart (leftHeroId, leftName, rightHeroId, rightName, mode)
+rRoundStart.OnClientEvent:Connect(function(leftHeroId, leftName, rightHeroId, rightName, mode)
+	ClientState.inMatch   = true
+	ClientState.matchMode = mode or ClientState.matchMode
 end)
 
 rRoundEnd.OnClientEvent:Connect(function()

@@ -9,7 +9,7 @@ local Characters = {}
 -- ============================================================
 Characters.FlameRonin = {
 	id = "FlameRonin", name = "Flame Ronin", role = "Bruiser",
-	hp = 120, m1Damage = 8, speed = 16,
+	hp = 200, m1Damage = 10, speed = 16,  -- FIX: hp 120→200, m1Damage 8→10
 	skills = {
 		{name="Flame Dash",   damage=8,  cooldown=6,  type="Dash",    anim="rbxassetid://0"},
 		{name="Rising Slash", damage=10, cooldown=8,  type="Launch",  anim="rbxassetid://0"},
@@ -25,7 +25,7 @@ Characters.FlameRonin = {
 -- ============================================================
 Characters.VoidAssassin = {
 	id = "VoidAssassin", name = "Void Assassin", role = "Assassin",
-	hp = 95, m1Damage = 6, speed = 20,
+	hp = 160, m1Damage = 12, speed = 18,  -- FIX: hp 95→160, m1Damage 6→12, speed 20→18
 	skills = {
 		{name="Blink Strike",  damage=9,  cooldown=7,  type="Teleport", anim="rbxassetid://0"},
 		{name="Shadow Feint",  damage=0,  cooldown=8,  type="Feint",    anim="rbxassetid://0"},
@@ -41,7 +41,7 @@ Characters.VoidAssassin = {
 -- ============================================================
 Characters.ThunderMonk = {
 	id = "ThunderMonk", name = "Thunder Monk", role = "Controller",
-	hp = 110, m1Damage = 7, speed = 17,
+	hp = 185, m1Damage = 10, speed = 16,  -- FIX: hp 110→185, m1Damage 7→10
 	skills = {
 		{name="Lightning Palm", damage=9, cooldown=6,  stun=0.4, type="Stun", anim="rbxassetid://0"},
 		{name="Stun Ring",      damage=4, cooldown=12, stun=0.6, type="AoE",  anim="rbxassetid://0"},
@@ -57,7 +57,7 @@ Characters.ThunderMonk = {
 -- ============================================================
 Characters.IronTitan = {
 	id = "IronTitan", name = "Iron Titan", role = "Tank",
-	hp = 260, m1Damage = 15, speed = 12,
+	hp = 300, m1Damage = 12, speed = 12,  -- FIX: hp 260→300, m1Damage 15→12 (tank)
 	skills = {
 		{name="Iron Slam",    damage=12, cooldown=8,  type="AoE",     anim="rbxassetid://0"},
 		{name="Shield Wall",  damage=0,  cooldown=12, type="Defense", anim="rbxassetid://0"},
@@ -73,7 +73,7 @@ Characters.IronTitan = {
 -- ============================================================
 Characters.ScarletArcher = {
 	id = "ScarletArcher", name = "Scarlet Archer", role = "Ranged",
-	hp = 140, m1Damage = 24, speed = 15,
+	hp = 165, m1Damage = 11, speed = 16,  -- FIX: hp 140→165, m1Damage 24→11
 	skills = {
 		{name="Arrow Rain",    damage=14, cooldown=9, type="AoE",    anim="rbxassetid://0"},
 		{name="Piercing Shot", damage=20, cooldown=8, type="Linear", anim="rbxassetid://0"},
@@ -89,7 +89,7 @@ Characters.ScarletArcher = {
 -- ============================================================
 Characters.EclipseHero = {
 	id = "EclipseHero", name = "Eclipse Hero", role = "Assassin",
-	hp = 150, m1Damage = 26, speed = 18,
+	hp = 170, m1Damage = 13, speed = 17,  -- FIX: hp 150→170, m1Damage 26→13
 	skills = {
 		{name="Eclipse Slash", damage=15, cooldown=7,  type="Burst",    anim="rbxassetid://0"},
 		{name="Lunar Phase",   damage=10, cooldown=9,  type="Teleport", anim="rbxassetid://0"},
@@ -105,7 +105,7 @@ Characters.EclipseHero = {
 -- ============================================================
 Characters.StormDancer = {
 	id = "StormDancer", name = "Storm Dancer", role = "Skirmisher",
-	hp = 145, m1Damage = 23, speed = 19,
+	hp = 185, m1Damage = 11, speed = 18,  -- FIX: hp 145→185, m1Damage 23→11, speed 19→18
 	skills = {
 		{name="Tempest Step", damage=8,  cooldown=6,  type="Dash",  anim="rbxassetid://0"},
 		{name="Wind Spiral",  damage=12, cooldown=8,  type="AoE",   anim="rbxassetid://0"},
@@ -121,7 +121,7 @@ Characters.StormDancer = {
 -- ============================================================
 Characters.BloodSage = {
 	id = "BloodSage", name = "Blood Sage", role = "Mage",
-	hp = 120, m1Damage = 30, speed = 14,
+	hp = 175, m1Damage = 11, speed = 14,  -- FIX: hp 120→175, m1Damage 30→11
 	skills = {
 		{name="Bloodbolt",     damage=18, cooldown=7,  type="Projectile", anim="rbxassetid://0"},
 		{name="Crimson Bind",  damage=6,  cooldown=10, type="Root",       anim="rbxassetid://0"},
@@ -137,7 +137,7 @@ Characters.BloodSage = {
 -- ============================================================
 Characters.CrystalGuard = {
 	id = "CrystalGuard", name = "Crystal Guard", role = "Tank",
-	hp = 240, m1Damage = 14, speed = 13,
+	hp = 280, m1Damage = 11, speed = 13,  -- FIX: hp 240→280, m1Damage 14→11 (tank)
 	skills = {
 		{name="Crystal Spike", damage=10, cooldown=7,  type="AoE",    anim="rbxassetid://0"},
 		{name="Prism Barrier", damage=0,  cooldown=12, type="Shield", anim="rbxassetid://0"},
@@ -153,7 +153,7 @@ Characters.CrystalGuard = {
 -- ============================================================
 Characters.ShadowTwin = {
 	id = "ShadowTwin", name = "Shadow Twin", role = "Support",
-	hp = 155, m1Damage = 25, speed = 17,
+	hp = 200, m1Damage = 12, speed = 16,  -- FIX: hp 155→200, m1Damage 25→12
 	skills = {
 		{name="Twin Lash",    damage=12, cooldown=6,  type="Burst",    anim="rbxassetid://0"},
 		{name="Shadow Clone", damage=0,  cooldown=15, type="Clone",    anim="rbxassetid://0"},
@@ -169,7 +169,7 @@ Characters.ShadowTwin = {
 -- ============================================================
 Characters.NeonBlitz = {
 	id = "NeonBlitz", name = "Neon Blitz", role = "Ranged",
-	hp = 135, m1Damage = 27, speed = 16,
+	hp = 170, m1Damage = 12, speed = 16,  -- FIX: hp 135→170, m1Damage 27→12
 	skills = {
 		{name="Neon Burst",   damage=16, cooldown=7,  type="Projectile", anim="rbxassetid://0"},
 		{name="Circuit Dash", damage=0,  cooldown=6,  type="Dash",       anim="rbxassetid://0"},
@@ -185,7 +185,7 @@ Characters.NeonBlitz = {
 -- ============================================================
 Characters.JadeSentinel = {
 	id = "JadeSentinel", name = "Jade Sentinel", role = "Duelist",
-	hp = 200, m1Damage = 18, speed = 15,
+	hp = 210, m1Damage = 11, speed = 15,  -- FIX: m1Damage 18→11
 	skills = {
 		{name="Jade Strike",   damage=14, cooldown=7,  type="Burst", anim="rbxassetid://0"},
 		{name="Sentinel Step", damage=0,  cooldown=6,  type="Dodge", anim="rbxassetid://0"},
