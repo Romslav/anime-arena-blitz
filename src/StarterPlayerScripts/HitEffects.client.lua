@@ -14,10 +14,11 @@ local LocalPlayer = Players.LocalPlayer
 local Camera      = workspace.CurrentCamera
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
-local Remotes      = ReplicatedStorage:WaitForChild("Remotes")
-local rTakeDamage  = Remotes:WaitForChild("TakeDamage",  10)
-local rPlayerDied  = Remotes:WaitForChild("PlayerDied",  10)
-local rSkillUsed   = Remotes:WaitForChild("SkillUsed",   10)
+local Remotes        = ReplicatedStorage:WaitForChild("Remotes")
+local rTakeDamage    = Remotes:WaitForChild("TakeDamage",    10)
+local rPlayerDied    = Remotes:WaitForChild("PlayerDied",    10)
+local rSkillUsed     = Remotes:WaitForChild("SkillUsed",     10)
+local rUpdateEffect  = Remotes:WaitForChild("UpdateEffect",  10)  -- Hit-confirm искры
 
 -- ============================================================
 -- GUI
@@ -316,6 +317,20 @@ rPlayerDied.OnClientEvent:Connect(function(victimId, killerUserId, respawnTime)
 	if victimId == LocalPlayer.UserId then
 		playDeathEffect()
 	end
+end)
+
+-- ИСПРАВЛЕНИЕ: Hit-confirm — искры на экране атакующего при попадании
+-- Без этого: rTakeDamage летит только жертве, атакующий видел пустой экран
+-- Теперь: искры в точке попадания + легкий шейк экрана
+rUpdateEffect.OnClientEvent:Connect(function(effectType, position, dmgType)
+	if effectType ~= "hit_spark" then return end
+	local heroColor = Color3.fromRGB(255, 220, 60)  -- золотой цвет по умолчанию
+	if dmgType == "Ultimate" then
+		heroColor = Color3.fromRGB(200, 80, 255)     -- фиолетовый для ульт
+	end
+	spawnSparks(position, heroColor)
+	-- Лёгкий шейк при попадании — даёт ощущение контакта
+	screenShake(dmgType == "Ultimate" and 0.18 or 0.07, 0.12)
 end)
 
 print("[HitEffects] Initialized ✓")

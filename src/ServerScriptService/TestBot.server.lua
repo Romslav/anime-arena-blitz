@@ -297,6 +297,8 @@ local function spawnBot()
 	local model, hrp, hum = buildR6Body(botHeroId, spawnCF)
 	botModel = model
 	botAlive = true
+	-- Плавный поворот управляется через CFrame:Lerp в Heartbeat
+	hum.AutoRotate = false
 
 	task.defer(registerBotInCombat)
 
@@ -452,10 +454,14 @@ local SLOTS     = { "Q", "E", "F", "R" }
 RunService.Heartbeat:Connect(function(dt)
 	if not botAlive or not botModel then return end
 
-	-- ИСПРАВЛЕНИЕ #1: Бот не атакует во время фазы подготовки (GET READY!)
+	-- ИСПРАВЛЕНИЕ #2: Бот ждёт конца Battle ФАЗЫ И конца заставки VS (4 секунды)
+	-- Пока battleStartTick < 4s — бот стоит на месте вместе с игроком
 	if _G.RoundService then
-		local phase = _G.RoundService.GetPhase(botMatchId)
-		if phase ~= "Battle" then return end
+		local round = _G.RoundService.GetRound(botMatchId)
+		if not round or round.phase ~= "Battle" then return end
+		if round.battleStartTick and (tick() - round.battleStartTick < 4) then
+			return
+		end
 	end
 
 	-- ИСПРАВЛЕНИЕ #2: Глобальный кулдаун — пауза между действиями бота
@@ -493,10 +499,15 @@ RunService.Heartbeat:Connect(function(dt)
 		return
 	end
 
-	-- 2. Движение к цели
+	-- 2. Движение к цели + плавный поворот
+	local tHRPPos = target.Character.HumanoidRootPart.Position
 	if dist > diff.m1Range then
-		hum:MoveTo(target.Character.HumanoidRootPart.Position)
+		hum:MoveTo(tHRPPos)
 	end
+	-- Бот плавно смотрит на цель — без резкого дёргания
+	local lookPos  = Vector3.new(tHRPPos.X, hrp.Position.Y, tHRPPos.Z)
+	local targetCF = CFrame.lookAt(hrp.Position, lookPos)
+	hrp.CFrame = hrp.CFrame:Lerp(targetCF, 0.15)
 
 	-- 3. Скиллы (с вероятностью, через SkillHandlers)
 	if math.random() < diff.skillChance then

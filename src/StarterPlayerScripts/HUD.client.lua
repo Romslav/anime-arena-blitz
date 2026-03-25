@@ -575,6 +575,14 @@ end)
 -- ============================================================
 
 rRoundStart.OnClientEvent:Connect(function(leftHeroId, leftName, rightHeroId, rightName, mode)
+	-- ИСПРАВЛЕНИЕ #3: принудительный сброс кулдаунов и ульта при старте интро
+	-- skillCDs не обнулялись между матчами — каждый новый бой начинается с чистыми скиллами
+	for _, slot in ipairs(SLOTS) do
+		skillCDs[slot] = 0
+	end
+	ultCharge = 0
+	tween(ultFill, 0.2, { Size = UDim2.new(0, 0, 1, 0) }):Play()
+	ultLabel.Text = "0%"
 	updateHP(maxHP, maxHP)
 	showHUD(mode)
 end)

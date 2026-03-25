@@ -105,6 +105,20 @@ local function notifyDamage(attacker, victim, amount, dmgType)
 		end
 	end
 
+	-- Hit-confirm: искры на экране атакующего в точке попадания
+	-- (rTakeDamage летит жертве, атакующий без этого ничего не видит)
+	if isRealPlayer(attacker) then
+		local victimChar = isBot(victim)
+			and (_G.TestBot and _G.TestBot.getModel and _G.TestBot.getModel())
+			or (isRealPlayer(victim) and victim.Character)
+		local victimHRP = victimChar and victimChar:FindFirstChild("HumanoidRootPart")
+		if victimHRP then
+			pcall(function()
+				rUpdateEffect:FireClient(attacker, "hit_spark", victimHRP.Position, dmgType)
+			end)
+		end
+	end
+
 	-- Ульта-заряд атакующему (только реальным)
 	if isRealPlayer(attacker) then
 		local aState = matchState[attacker.UserId]
@@ -170,6 +184,28 @@ local function dealDamage(attacker, victim, amount, dmgType)
 	vState.hp = math.max(0, vState.hp - final)
 
 	notifyDamage(attacker, victim, final, dmgType)
+
+	-- HitStop: замираем на 80мс — удары ощущаются тяжёлыми
+	if isRealPlayer(victim) and victim.Character then
+		local hum = victim.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			local origSpeed = hum.WalkSpeed
+			hum.WalkSpeed = 0
+			task.delay(0.08, function()
+				if hum and hum.Parent then hum.WalkSpeed = origSpeed end
+			end)
+		end
+	elseif isBot(victim) then
+		local botModel = _G.TestBot and _G.TestBot.getModel and _G.TestBot.getModel()
+		local hum = botModel and botModel:FindFirstChildOfClass("Humanoid")
+		if hum then
+			local origSpeed = hum.WalkSpeed
+			hum.WalkSpeed = 0
+			task.delay(0.08, function()
+				if hum and hum.Parent then hum.WalkSpeed = origSpeed end
+			end)
+		end
+	end
 
 	-- 5. Смерть
 	if vState.hp <= 0 then

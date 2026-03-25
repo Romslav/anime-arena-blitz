@@ -94,11 +94,13 @@ local function startMatch(playerA, playerB, mode)
 			task.wait(1)
 			waited += 1
 			if not playerA.Parent or not playerB.Parent then return end
-			local hs   = _G.HeroSelector
-			local selA = hs and hs.getSelected(playerA.UserId)
-			local selB = hs and hs.getSelected(playerB.UserId)
+			-- ИСПРАВЛЕНИЕ #1: ждём подтверждения от CharacterService (не HeroSelector)
+			-- Race condition: HeroSelector пишет мгновенно, CharacterService — с подтверждением
+			local cs   = _G.CharacterService
+			local selA = cs and cs.GetSelectedHero(playerA.UserId)
+			local selB = cs and cs.GetSelectedHero(playerB.UserId)
 			if selA and selB then
-				print(string.format("[Matchmaking] Both heroes selected after %ds", waited))
+				print(string.format("[Matchmaking] Both heroes confirmed by CharacterService after %ds", waited))
 				break
 			end
 		end
@@ -129,9 +131,10 @@ local function startBotMatch(player, mode)
 			task.wait(1)
 			waited += 1
 			if not player.Parent then return end
-			local hs = _G.HeroSelector
-			if hs and hs.getSelected(player.UserId) then
-				print(string.format("[Matchmaking] Hero selected after %ds, starting bot match", waited))
+			-- ИСПРАВЛЕНИЕ #1: ждём CharacterService, а не HeroSelector
+			local cs = _G.CharacterService
+			if cs and cs.GetSelectedHero(player.UserId) then
+				print(string.format("[Matchmaking] Hero confirmed by CharacterService after %ds, starting bot match", waited))
 				break
 			end
 		end
