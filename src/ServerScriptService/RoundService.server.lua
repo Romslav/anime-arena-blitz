@@ -15,6 +15,7 @@ local UpdateHUD        = Remotes:WaitForChild("UpdateHUD")
 local ShowKillFeed     = Remotes:WaitForChild("ShowKillFeed")
 local MatchFound       = Remotes:WaitForChild("MatchFound")
 local ShowNotification = Remotes:WaitForChild("ShowNotification")
+local ReturnToLobby    = Remotes:WaitForChild("ReturnToLobby")   -- возврат из матча в лобби
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 
@@ -400,7 +401,28 @@ local function runConclusion(round, winnerId, reason)
 	))
 
 	task.wait(PHASE_DURATIONS.Conclusion)
+
+	-- ── Возврат игроков в лобби ──────────────────────────────────
+	for _, p in ipairs(round.players) do
+		local isBot = type(p) == "table" and p._isBot
+		if isBot then
+			if _G.TestBot then
+				task.spawn(function() _G.TestBot.despawn() end)
+			end
+		elseif p and p.Parent then
+			-- Сигнал клиенту: запустить fade-out анимацию
+			ReturnToLobby:FireClient(p)
+			-- Серверный ресет через 1.5s (после клиентского fade)
+			task.delay(1.5, function()
+				if p and p.Parent and _G.CharacterService then
+					_G.CharacterService.SpawnInLobby(p)
+				end
+			end)
+		end
+	end
+
 	activeRounds[round.id] = nil
+	print(string.format("[RoundService] Round %s cleared → players returned to Lobby", round.id))
 end
 
 -- ============================================================
@@ -570,5 +592,12 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	RoundService.ForfeitPlayer(player.UserId)
 end)
+
+-- ============================================================
+-- LOBBY REMOTES
+-- ============================================================
+
+-- ReturnToLobby: клиентский ивент для анимации возврата в лобби
+local ReturnToLobby = Remotes:WaitForChild("ReturnToLobby", 10)
 
 print("[RoundService] Initialized ✓ — Phase system: Waiting → Preparation → Battle → Conclusion")

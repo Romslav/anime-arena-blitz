@@ -3,6 +3,46 @@
   "tree": {
     "$className": "DataModel",
 
+    "Workspace": {
+      "$className": "Workspace",
+
+      "Lobby": {
+        "$className": "Folder",
+
+        "SpawnLocation": {
+          "$className": "SpawnLocation"
+        },
+
+        "NPCs": {
+          "$className": "Folder",
+
+          "ArenasMaster": {
+            "$className": "Model",
+
+            "HumanoidRootPart": {
+              "$className": "Part"
+            },
+
+            "Humanoid": {
+              "$className": "Humanoid"
+            }
+          },
+
+          "Trader": {
+            "$className": "Model",
+
+            "HumanoidRootPart": {
+              "$className": "Part"
+            },
+
+            "Humanoid": {
+              "$className": "Humanoid"
+            }
+          }
+        }
+      }
+    },
+
     "ServerScriptService": {
       "$path": "src/ServerScriptService"
     },

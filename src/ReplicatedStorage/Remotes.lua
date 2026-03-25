@@ -65,6 +65,23 @@ Remotes.EVENTS = {
 	-- [РЕЗУЛЬТАТЫ МАТЧА]
 	"ShowMatchResults",		-- server  → client : (fullResultData)
 	"RankUpdate",			-- server  → client : (oldRank, newRank, newRP)
+
+	-- [ОТКРЫТЫЙ МИР — ЛОББИ]
+	"OpenLobbyMenu",		-- server  → client : открыть LobbyUI (NPC «Мастер Арен»)
+	"ReturnToLobby",		-- server  → client : вернуть игрока в лобби после матча
+	"OpenTradePanel",		-- server  → client : открыть TradeUI (NPC «Торговец»)
+
+	-- [ДУЭЛИ]
+	"RequestDuel",			-- client  → server : запросить дуэль (targetUserId)
+	"DuelRequest",			-- server  → client : входящий запрос (requesterName, requesterUserId, expireSeconds)
+	"AcceptDuel",			-- client  → server : принять дуэль (requesterUserId)
+	"DeclineDuel",			-- client  → server : отклонить дуэль (requesterUserId)
+	"DuelDeclined",			-- server  → client : цель отклонила вызов (targetName)
+	"DuelCancelled",		-- server  → client : запрос истёк / инициатор отключился (reason)
+
+	-- [ТОРГОВЛЯ]
+	"TransferCoins",		-- client  → server : передать монеты (targetUserId, amount)
+	"TradeResult",			-- server  → client : результат передачи (success, message, newBalance)
 }
 
 -- ============================================================

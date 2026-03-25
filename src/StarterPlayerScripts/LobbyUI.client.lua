@@ -462,7 +462,8 @@ local function animateIn()
 	end
 end
 
-task.delay(0.1, animateIn)
+-- Меню не открывается автоматически — только по взаимодействию с NPC
+gui.Enabled = false
 
 -- ============================================================
 -- PLAY / CANCEL
@@ -673,5 +674,44 @@ if rGetLeaderboard then
 		end
 	end)
 end
+
+-- ============================================================
+-- NPC & ЛОББИ ОТКРЫТИЕ
+-- ============================================================
+
+local rOpenLobbyMenu = Remotes:WaitForChild("OpenLobbyMenu", 10)
+local rReturnToLobby = Remotes:WaitForChild("ReturnToLobby",  10)
+
+-- Открываем меню только по клику на NPC «Мастер Арен»
+rOpenLobbyMenu.OnClientEvent:Connect(function()
+	LobbyUI.Show()
+end)
+
+-- Возврат из матча: плавный fade-темнение → открытие лобби
+rReturnToLobby.OnClientEvent:Connect(function()
+	-- Создаём fade-оверлей
+	local fadeFrame        = Instance.new("Frame")
+	fadeFrame.Size         = UDim2.new(1, 0, 1, 0)
+	fadeFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+	fadeFrame.BackgroundTransparency = 1
+	fadeFrame.ZIndex       = 100
+	fadeFrame.BorderSizePixel = 0
+	fadeFrame.Parent       = PlayerGui
+
+	-- Затемняем экран
+	local tIn = TweenService:Create(fadeFrame,
+		TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ BackgroundTransparency = 0 })
+	tIn:Play()
+	tIn.Completed:Connect(function()
+		-- Показываем лобби и светлеем
+		LobbyUI.Show()
+		local tOut = TweenService:Create(fadeFrame,
+			TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ BackgroundTransparency = 1 })
+		tOut:Play()
+		tOut.Completed:Connect(function() fadeFrame:Destroy() end)
+	end)
+end)
 
 print("[LobbyUI] Initialized ✓")

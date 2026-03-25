@@ -279,6 +279,64 @@ rSelectHero.OnServerEvent:Connect(function(player, heroId)
 end)
 
 -- ============================================================
+-- ЛОББИ — МИРНЫЙ СПАВН
+-- ============================================================
+
+-- Координаты точки спавна в лобби (переопределить под карту)
+local LOBBY_SPAWN_CF = CFrame.new(0, 10, 0)
+
+--- Спавнить игрока в нейтральной зоне лобби без героя и боевых тегов.
+--- Вызывается при первом входе и при возврате из матча.
+---@param player Player
+---@param spawnCF CFrame|nil  — переопределить позицию спавна (опционально)
+function CharacterService.SpawnInLobby(player, spawnCF)
+	if not player or not player.Parent then return end
+
+	-- Отключаем старый коннект, чтобы не накапливать
+	disconnectSpawnConn(player.UserId)
+	selectedHeroes[player.UserId] = nil
+
+	-- Перезапускаем персонажа
+	local ok, err = pcall(function() player:LoadCharacter() end)
+	if not ok then
+		warn("[CharacterService] LoadCharacter failed for", player.Name, ":", err)
+		return
+	end
+
+	-- Ждём появления персонажа
+	local char = player.Character or player.CharacterAdded:Wait()
+
+	task.wait(0.2)  -- дать физике осесть
+	if not char or not char.Parent then return end
+
+	-- Телепортируем
+	local cf = spawnCF or LOBBY_SPAWN_CF
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if hrp then hrp.CFrame = cf end
+
+	-- Убираем боевые теги
+	local tag = char:FindFirstChild("HeroTag")
+	if tag then tag:Destroy() end
+
+	-- Стандартные параметры мирного состояния
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.MaxHealth = 100
+		hum.Health    = 100
+		hum.WalkSpeed = 16
+		hum.JumpPower = 50
+	end
+
+	print(string.format("[CharacterService] %s spawned in Lobby (peaceful)", player.Name))
+end
+
+--- Задать координаты точки спавна лобби (вызывается из NPCService при инициализации)
+---@param cf CFrame
+function CharacterService.SetLobbySpawn(cf)
+	LOBBY_SPAWN_CF = cf
+end
+
+-- ============================================================
 -- УБОРКА
 -- ============================================================
 
