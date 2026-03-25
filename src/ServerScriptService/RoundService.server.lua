@@ -353,6 +353,16 @@ local function runConclusion(round, winnerId, reason)
 	local mvpName = getNameById(mvpId) or "None"
 	local winnerName = getNameById(winnerId) or "Draw"
 
+	-- Выдаём XP Мастерства победителю за его стиль боя
+	if winnerId and winnerId ~= 0 then
+		if _G.CombatSystem and _G.CombatSystem.AwardStyleMastery then
+			local ok, err = pcall(_G.CombatSystem.AwardStyleMastery, winnerId)
+			if not ok then
+				warn("[RoundService] AwardStyleMastery failed for", winnerId, ":", err)
+			end
+		end
+	end
+
 	-- Считаем награды по игроку
 	for _, p in ipairs(round.players) do
 		if p and p.Parent then
