@@ -53,8 +53,27 @@ local NPC_CONFIG = {
 	},
 }
 
--- Дефолт: неизвестный NPC → поведение как Мастер Арен
+-- Дефолт: неизвестный NPC -> поведение как Мастер Арен
 local DEFAULT_CONFIG = NPC_CONFIG["ArenasMaster"]
+
+-- ============================================================
+-- ПОЗИЦИИ NPC В ЛОББИ
+-- FIX: Большое расстояние (80 стадов) - NPC больше не сливаются.
+--
+-- CFrame.lookAt(позиция, куда_смотреть):
+--   ArenasMaster: X=-40, Z=12  смотрит на центр (0,5,0)
+--   Trader:       X=+40, Z=12  смотрит на центр (0,5,0)
+--
+-- НАСТРОЙКА ПОД КАРТУ:
+--   Измени первый Vector3.new(X, Y, Z) под реальные координаты пола.
+--   Y=5 = чуть выше пола, гарантирует что NPC не провалится.
+--   Второй Vector3.new(0,5,0) = точка куда смотрит NPC (центр лобби).
+-- ============================================================
+
+local NPC_SPAWN_POSITIONS = {
+	["ArenasMaster"] = CFrame.lookAt(Vector3.new(-40, 5, 12), Vector3.new(0, 5, 0)),
+	["Trader"]       = CFrame.lookAt(Vector3.new( 40, 5, 12), Vector3.new(0, 5, 0)),
+}
 
 -- ============================================================
 -- SETUP NPC
@@ -71,41 +90,85 @@ local function setupNPC(npcModel)
 		return
 	end
 
+	-- --------------------------------------------------------
+	-- ШАГ 1: ЯКОРЬ ВСЕХ ЧАСТЕЙ (синхронно, до PivotTo)
+	-- Якорим ДО перемещения - физика не успеет откатить позицию
+	-- --------------------------------------------------------
+	for _, part in ipairs(npcModel:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored    = true
+			part.Velocity    = Vector3.zero
+			part.RotVelocity = Vector3.zero
+		end
+	end
+	hrp.Anchored = true
+
+	-- --------------------------------------------------------
+	-- ШАГ 2: НЕЙТРАЛИЗАЦИЯ HUMANOID
+	-- Humanoid с WalkSpeed > 0 борется против якоря.
+	-- Обнуляем скорость и прыжок - NPC стоит как статуя.
+	-- --------------------------------------------------------
+	local hum = npcModel:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.WalkSpeed       = 0
+		hum.JumpPower       = 0
+		hum.AutoJumpEnabled = false
+		hum.PlatformStand   = true
+	end
+
+	-- --------------------------------------------------------
+	-- ШАГ 3: ПЕРЕМЕЩЕНИЕ через PivotTo
+	-- PivotTo - современный Roblox API, не требует PrimaryPart.
+	-- Перемещает ВСЮ модель с сохранением внутренних смещений.
+	-- --------------------------------------------------------
+	local spawnCF = NPC_SPAWN_POSITIONS[npcModel.Name]
+	if spawnCF then
+		npcModel:PivotTo(spawnCF)
+		print(string.format("[NPCService] '%s' placed at (%.0f, %.0f, %.0f) via PivotTo",
+			npcModel.Name,
+			spawnCF.Position.X,
+			spawnCF.Position.Y,
+			spawnCF.Position.Z))
+	else
+		warn(string.format("[NPCService] No spawn position for '%s' - add to NPC_SPAWN_POSITIONS",
+			npcModel.Name))
+	end
+
 	-- Удаляем старый ProximityPrompt (хот-релоад)
 	local old = hrp:FindFirstChildOfClass("ProximityPrompt")
 	if old then old:Destroy() end
 
 	-- ProximityPrompt
-	local prompt                    = Instance.new("ProximityPrompt")
-	prompt.ActionText               = cfg.actionText
-	prompt.ObjectText               = cfg.objectText
-	prompt.HoldDuration             = cfg.holdDuration
-	prompt.MaxActivationDistance    = 8
-	prompt.RequiresLineOfSight       = false
-	prompt.Parent                   = hrp
+	local prompt                 = Instance.new("ProximityPrompt")
+	prompt.ActionText            = cfg.actionText
+	prompt.ObjectText            = cfg.objectText
+	prompt.HoldDuration          = cfg.holdDuration
+	prompt.MaxActivationDistance = 8
+	prompt.RequiresLineOfSight   = false
+	prompt.Parent                = hrp
 
 	-- Billboard над головой
 	local existing = npcModel:FindFirstChild("NPCNameTag")
 	if existing then existing:Destroy() end
 
-	local bb              = Instance.new("BillboardGui")
-	bb.Name               = "NPCNameTag"
-	bb.Size               = UDim2.new(0, 200, 0, 46)
-	bb.StudsOffset        = Vector3.new(0, 3.2, 0)
-	bb.AlwaysOnTop        = false
-	bb.Adornee            = hrp
-	bb.Parent             = npcModel
+	local bb         = Instance.new("BillboardGui")
+	bb.Name          = "NPCNameTag"
+	bb.Size          = UDim2.new(0, 200, 0, 46)
+	bb.StudsOffset   = Vector3.new(0, 3.2, 0)
+	bb.AlwaysOnTop   = false
+	bb.Adornee       = hrp
+	bb.Parent        = npcModel
 
-	local lbl             = Instance.new("TextLabel")
-	lbl.Size              = UDim2.new(1, 0, 1, 0)
-	lbl.BackgroundTransparency = 1
-	lbl.Text              = cfg.objectText
-	lbl.TextColor3        = cfg.nameColor or Color3.fromRGB(255, 220, 80)
-	lbl.TextStrokeTransparency = 0
-	lbl.TextStrokeColor3  = Color3.new(0, 0, 0)
-	lbl.Font              = Enum.Font.GothamBold
-	lbl.TextScaled        = true
-	lbl.Parent            = bb
+	local lbl                    = Instance.new("TextLabel")
+	lbl.Size                     = UDim2.new(1, 0, 1, 0)
+	lbl.BackgroundTransparency   = 1
+	lbl.Text                     = cfg.objectText
+	lbl.TextColor3               = cfg.nameColor or Color3.fromRGB(255, 220, 80)
+	lbl.TextStrokeTransparency   = 0
+	lbl.TextStrokeColor3         = Color3.new(0, 0, 0)
+	lbl.Font                     = Enum.Font.GothamBold
+	lbl.TextScaled               = true
+	lbl.Parent                   = bb
 
 	-- Триггер
 	prompt.Triggered:Connect(function(player)
@@ -135,7 +198,7 @@ local function initLobbyNPCs()
 	end
 
 	if not lobbyFolder then
-		warn("[NPCService] workspace.Lobby not found after 30s — NPCs not initialized.")
+		warn("[NPCService] workspace.Lobby not found after 30s - NPCs not initialized.")
 		return
 	end
 
@@ -161,7 +224,7 @@ local function initLobbyNPCs()
 
 	-- Регистрируем точку спавна лобби из SpawnLocation
 	local spawnPart = lobbyFolder:FindFirstChild("SpawnLocation")
-				or lobbyFolder:FindFirstChildOfClass("SpawnLocation")
+		or lobbyFolder:FindFirstChildOfClass("SpawnLocation")
 	if spawnPart and _G.CharacterService then
 		_G.CharacterService.SetLobbySpawn(spawnPart.CFrame + Vector3.new(0, 3, 0))
 		print("[NPCService] Lobby spawn registered from SpawnLocation")

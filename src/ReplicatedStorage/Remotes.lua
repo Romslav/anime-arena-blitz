@@ -82,6 +82,17 @@ Remotes.EVENTS = {
 	-- [ТОРГОВЛЯ]
 	"TransferCoins",		-- client  → server : передать монеты (targetUserId, amount)
 	"TradeResult",			-- server  → client : результат передачи (success, message, newBalance)
+
+	-- [ПРОГРЕССИЯ ГЕРОЕВ — ОНБОРДИНГ]
+	"SelectStarter",			-- client  → server : выбор стартового героя при первом входе (heroId)
+	"ShowStarterSelection",		-- server  → client : показать UI выбора стартового набора
+	"HeroUnlocked",				-- server  → client : герой разблокирован (heroId)
+
+	-- [STYLISH! — РАНГ СТИЛЯ]
+	"StyleRankUp",				-- server  → client : смена ранга стиля во время боя (newRank, score)
+
+	-- [WISHING WELL — ГАЧА]
+	"WishingWellResult",		-- server  → client : результат кручения (resultData)
 }
 
 -- ============================================================
@@ -91,6 +102,8 @@ Remotes.EVENTS = {
 Remotes.FUNCTIONS = {
 	"GetPlayerData",		-- client  → server : () → {rp, coins, heroId, rank}
 	"GetLeaderboard",		-- client  → server : (mode) → [{name, rp, rank}]
+	"GetUserData",			-- client  → server : () → полные данные (unlockedHeroes, mastery, isFirstTime, ...)
+	"RollGacha",			-- client  → server : (chestType) → {success, isDuplicate, heroId, rarity, comp}
 }
 
 -- ============================================================

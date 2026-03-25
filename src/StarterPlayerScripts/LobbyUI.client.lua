@@ -195,6 +195,16 @@ task.spawn(function()
 end)
 
 -- ============================================================
+-- КНОПКА ЗАКРЫТИЯ МЕНЮ (top-right)
+-- FIX: Игрок может выйти из меню без входа в очередь
+-- ============================================================
+
+local closeMenuBtn = Btn(gui,
+	UDim2.new(0, 52, 0, 40), UDim2.new(1, -66, 0, 20),
+	"✖ Выход", Color3.fromRGB(55, 15, 30), Color3.fromRGB(255, 120, 120), 15, 10)
+Stroke(closeMenuBtn, Color3.fromRGB(180, 40, 80), 1.5)
+
+-- ============================================================
 -- ПАНЕЛЬ ПРОФИЛЯ (top-left)
 -- ============================================================
 
@@ -539,6 +549,23 @@ function LobbyUI.Show()
 	queuePanel.Visible = false
 	animateIn()
 end
+
+-- FIX: Кнопка «✖ Выход» — закрывает меню без входа в очередь
+-- Подключаем ЗДЕСЬ, после того как LobbyUI.Hide определена
+closeMenuBtn.Activated:Connect(function()
+	leaveQueue()
+	LobbyUI.Hide()
+end)
+closeMenuBtn.MouseEnter:Connect(function()
+	TweenService:Create(closeMenuBtn,
+		TweenInfo.new(0.12, Enum.EasingStyle.Quad),
+		{ BackgroundColor3 = Color3.fromRGB(160, 30, 60) }):Play()
+end)
+closeMenuBtn.MouseLeave:Connect(function()
+	TweenService:Create(closeMenuBtn,
+		TweenInfo.new(0.12, Enum.EasingStyle.Quad),
+		{ BackgroundColor3 = Color3.fromRGB(55, 15, 30) }):Play()
+end)
 
 function LobbyUI.UpdateProfile(data)
 	-- data = { rank, rp, coins, wins, losses }

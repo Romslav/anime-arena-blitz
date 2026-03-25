@@ -2,6 +2,7 @@
 -- Production хранение данных игрока:
 --   • Основные: rank, rp, coins, wins, losses, heroPlays
 --   • Battle Pass: level, xp, seasonId, freeClaims, premiumClaims
+--   • Прогрессия: unlockedHeroes, mastery, isFirstTime
 --   • Безопасное сохранение (очередь + защита от потери данных)
 --   • Автосохранение при выходе + BindToClose
 --   • Отправка данных профиля в LobbyUI после загрузки
@@ -77,6 +78,10 @@ local function defaultData()
 			freeClaims   = {},   -- [level] = true
 			premiumClaims= {},
 		},
+		-- Прогрессия и мастерство
+		unlockedHeroes = {},  -- {"ФлеймРонин", "StormDancer", ...}
+		mastery        = {},  -- {["FlameRonin"] = {xp=150, level=2}, ...}
+		isFirstTime    = true, -- флаг онбординга: показать StarterSelection
 	}
 end
 
@@ -123,6 +128,10 @@ local function loadData(player)
 	for k, v in pairs(def.bp) do
 		if data.bp[k] == nil then data.bp[k] = v end
 	end
+	-- Мерж новых полей прогрессии (обратная совместимость со старыми аккаунтами)
+	if type(data.unlockedHeroes) ~= "table" then data.unlockedHeroes = {} end
+	if type(data.mastery)        ~= "table" then data.mastery        = {} end
+	if data.isFirstTime          == nil     then data.isFirstTime    = true end
 
 	-- Пересчитываем ранг на основе RP
 	data.rank = getRankFromRP(data.rp)
@@ -215,6 +224,26 @@ function DataStore.AddPlayerRewards(userId, rpGain, coinsGain, isWin)
 			losses = data.losses,
 		})
 	end
+
+	-- Проверяем пороги разблокировки героев по RP
+	local RP_UNLOCKS = {
+		{ rp = 500,  heroId = "StormDancer"   },
+		{ rp = 1200, heroId = "ScarletArcher" },
+		{ rp = 3000, heroId = "JadeSentinel"  },
+	}
+	local rpBefore = data.rp - (rpGain or 0)
+	for _, threshold in ipairs(RP_UNLOCKS) do
+		if rpBefore < threshold.rp and data.rp >= threshold.rp then
+			local unlocked = DataStore.UnlockHero(userId, threshold.heroId)
+			if unlocked and player then
+				local rNotif   = Remotes:FindFirstChild("ShowNotification")
+				local rUnlocked = Remotes:FindFirstChild("HeroUnlocked")
+				if rNotif   then rNotif:FireClient(player,
+					"🔓 НОВЫЙ ГЕРОЙ: " .. threshold.heroId .. " РАЗБЛОКИРОВАН!", "unlock") end
+				if rUnlocked then rUnlocked:FireClient(player, threshold.heroId) end
+			end
+		end
+	end
 end
 
 --- Добавить Battle Pass XP
@@ -282,6 +311,57 @@ function DataStore.SetField(userId, field, value)
 	local data = playerData[userId]
 	if not data then return end
 	data[field] = value
+	saveQueue[userId] = true
+end
+
+-- ============================================================
+-- ПРОГРЕССИЯ ГЕРОЕВ (ОНБОРДИНГ + МАСТЕРСТВО)
+-- ============================================================
+
+local MASTERY_XP_PER_LEVEL = 100
+local MASTERY_MAX_LEVEL    = 10
+
+--- Разблокировать героя. Возвращает true, если герой был новым (false = дубликат)
+function DataStore.UnlockHero(userId, heroId)
+	local data = playerData[userId]
+	if not data then return false end
+	if table.find(data.unlockedHeroes, heroId) then return false end
+
+	table.insert(data.unlockedHeroes, heroId)
+	data.mastery[heroId] = { xp = 0, level = 1 }
+	saveQueue[userId] = true
+	print(string.format("[DataStore] Player %d unlocked hero '%s'", userId, heroId))
+	return true
+end
+
+--- Начислить XP мастерства за конкретного героя. Возвращает true при повышении уровня
+function DataStore.AddMasteryXP(userId, heroId, amount)
+	local data = playerData[userId]
+	if not data then return false end
+	if not table.find(data.unlockedHeroes, heroId) then return false end
+
+	data.mastery[heroId] = data.mastery[heroId] or { xp = 0, level = 1 }
+	local mastery = data.mastery[heroId]
+	mastery.xp = mastery.xp + (amount or 0)
+
+	local leveled = false
+	while mastery.xp >= MASTERY_XP_PER_LEVEL and mastery.level < MASTERY_MAX_LEVEL do
+		mastery.xp    = mastery.xp - MASTERY_XP_PER_LEVEL
+		mastery.level = mastery.level + 1
+		leveled = true
+		print(string.format("[DataStore] Player %d mastery level-up: %s → Lv%d",
+			userId, heroId, mastery.level))
+	end
+
+	saveQueue[userId] = true
+	return leveled
+end
+
+--- Завершить онбординг (снять флаг первого входа)
+function DataStore.SetFirstTimeDone(userId)
+	local data = playerData[userId]
+	if not data then return end
+	data.isFirstTime = false
 	saveQueue[userId] = true
 end
 
@@ -360,29 +440,35 @@ if rGetLeaderboard then
 end
 
 -- ============================================================
--- ЛИДЕРБОРД (ТОП-5 по RP)
+-- REMOTE: GetUserData — клиент запрашивает полные данные для HeroSelector
 -- ============================================================
 
-local rGetLeaderboard = Remotes:FindFirstChild("GetLeaderboard")
-if rGetLeaderboard then
-	rGetLeaderboard.OnServerInvoke = function(player)
-		local sorted = {}
-		for uid, pd in pairs(playerData) do
-			local p = Players:GetPlayerByUserId(uid)
-			table.insert(sorted, {
-				name = p and p.Name or "Unknown",
-				rp   = pd.rp   or 0,
-				rank = pd.rank or "E",
-			})
+task.defer(function()
+	local rGetUserData = Remotes:FindFirstChild("GetUserData")
+	if rGetUserData then
+		rGetUserData.OnServerInvoke = function(player)
+			local data = playerData[player.UserId]
+			if not data then
+				return { unlockedHeroes = {}, mastery = {}, isFirstTime = true }
+			end
+			return {
+				rp             = data.rp,
+				rank           = data.rank,
+				coins          = data.coins,
+				wins           = data.wins,
+				losses         = data.losses,
+				unlockedHeroes = data.unlockedHeroes,
+				mastery        = data.mastery,
+				isFirstTime    = data.isFirstTime,
+				bp = {
+					level   = data.bp.level,
+					xp      = data.bp.xp,
+					premium = data.bp.premium,
+				},
+			}
 		end
-		table.sort(sorted, function(a, b) return a.rp > b.rp end)
-		local top5 = {}
-		for i = 1, math.min(5, #sorted) do
-			table.insert(top5, sorted[i])
-		end
-		return top5
 	end
-end
+end)
 
 print("[DataStore] Initialized ✓")
 return DataStore

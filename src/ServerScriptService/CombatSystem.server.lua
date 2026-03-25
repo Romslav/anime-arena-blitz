@@ -24,6 +24,7 @@ local rChargeUlt        = Remotes:WaitForChild("ChargeUlt")
 local rUpdateEffect     = Remotes:WaitForChild("UpdateEffect")
 local rUpdateHUD        = Remotes:WaitForChild("UpdateHUD")
 local rUpdateSkillCDs   = Remotes:WaitForChild("UpdateSkillCooldowns")
+local rStyleRankUp      = Remotes:FindFirstChild("StyleRankUp")
 
 -- ============================================================
 -- СОСТОЯНИЕ
@@ -31,7 +32,8 @@ local rUpdateSkillCDs   = Remotes:WaitForChild("UpdateSkillCooldowns")
 
 -- matchState[userId] = {
 --   hp, maxHp, heroId, alive, kills, deaths, damage,
---   matchId, mode, speed, ultCharge, lastM1
+--   matchId, mode, speed, ultCharge, lastM1,
+--   styleScore, lastHitTime, styleRank  -- Stylish! система
 -- }
 local matchState = {}
 local cooldowns  = {}  -- cooldowns[userId][slot] = lastUsedTick
@@ -182,6 +184,52 @@ local function dealDamage(attacker, victim, amount, dmgType)
 		if aState then aState.damage = aState.damage + final end
 	end
 	vState.hp = math.max(0, vState.hp - final)
+
+	-- ============================================================
+	-- STYLISH! — ранг стиля атакующего
+	-- ============================================================
+	if isRealPlayer(attacker) and rStyleRankUp then
+		local aState = matchState[attacker.UserId]
+		if aState then
+			local now = tick()
+			local gap = now - (aState.lastHitTime or 0)
+			-- Комбо < 2.5с: очки накапливаются; долгий перерыв: частично сгорают
+			if gap < 2.5 then
+				aState.styleScore = (aState.styleScore or 0) + final
+			else
+				aState.styleScore = math.max(0, (aState.styleScore or 0) * 0.4 + final)
+			end
+			aState.lastHitTime = now
+
+			local s = aState.styleScore
+			local rank = s > 500 and "SSS"
+				       or s > 350 and "SS"
+				       or s > 200 and "S"
+				       or s > 100 and "A"
+				       or s > 50  and "B"
+				       or s > 20  and "C" or "D"
+
+			-- Отправляем только при смене ранга (экономия трафика)
+			if rank ~= (aState.styleRank or "D") then
+				aState.styleRank = rank
+				pcall(function()
+					rStyleRankUp:FireClient(attacker, rank, math.floor(s))
+				end)
+			end
+		end
+	end
+
+	-- Сброс стиля жертвы (получила урон)
+	if isRealPlayer(victim) and rStyleRankUp then
+		local vStyleState = matchState[victim.UserId]
+		if vStyleState and (vStyleState.styleRank or "D") ~= "D" then
+			vStyleState.styleScore = 0
+			vStyleState.styleRank  = "D"
+			pcall(function()
+				rStyleRankUp:FireClient(victim, "D", 0)
+			end)
+		end
+	end
 
 	notifyDamage(attacker, victim, final, dmgType)
 
@@ -489,10 +537,14 @@ function CombatSystem.initPlayer(player, heroData, matchId, mode)
 		deaths     = 0,
 		damage     = 0,
 		matchId    = matchId or "default",
-		mode       = mode,           -- FIX #2: храним режим в состоянии
+		mode       = mode,
 		speed      = heroData and heroData.speed or 16,
 		ultCharge  = 0,
 		lastM1     = 0,
+		-- Stylish!
+		styleScore  = 0,
+		lastHitTime = 0,
+		styleRank   = "D",
 	}
 	cooldowns[player.UserId] = {}
 	StatusEffects.ClearPlayer(player.UserId)
@@ -519,11 +571,14 @@ end
 function CombatSystem.resetPlayer(userId)
 	local state = matchState[userId]
 	if not state then return end
-	state.alive     = true
-	state.hp        = state.maxHp
-	state.ultCharge = 0
-	state.jadeHits  = 0    -- сброс пассивки JadeSentinel при респавне
-	m1Combo[userId] = 0    -- сброс M1-комбо при респавне
+	state.alive      = true
+	state.hp         = state.maxHp
+	state.ultCharge  = 0
+	state.jadeHits   = 0    -- сброс пассивки JadeSentinel при респавне
+	m1Combo[userId]  = 0    -- сброс M1-комбо при респавне
+	state.styleScore  = 0   -- сброс Stylish! при респавне
+	state.lastHitTime = 0
+	state.styleRank   = "D"
 	StatusEffects.ClearPlayer(userId)
 	cooldowns[userId] = {}
 	local p = Players:GetPlayerByUserId(userId)
@@ -560,5 +615,30 @@ Players.PlayerRemoving:Connect(function(player)
 	m1Combo[player.UserId]    = nil
 	StatusEffects.ClearPlayer(player.UserId)
 end)
+
+-- ============================================================
+-- МАСТЕРСТВО за стиль по итогам матча
+-- ============================================================
+
+local STYLE_MASTERY_XP = { D=5, C=8, B=12, A=18, S=25, SS=35, SSS=50 }
+
+--- Вызывается из RoundService после завершения раунда. userId — победитель.
+function CombatSystem.AwardStyleMastery(userId)
+	if not _G.DataStore then return end
+	local state = matchState[userId]
+	if not state or not state.heroId or not state.styleRank then return end
+
+	local xp = STYLE_MASTERY_XP[state.styleRank] or 5
+	local leveled = _G.DataStore.AddMasteryXP(userId, state.heroId, xp)
+
+	local player = Players:GetPlayerByUserId(userId)
+	if player and leveled then
+		local rNotif = Remotes:FindFirstChild("ShowNotification")
+		if rNotif then
+			rNotif:FireClient(player,
+				"⭐ Мастерство " .. state.heroId .. " повышено!", "mastery")
+		end
+	end
+end
 
 print("[CombatSystem] Initialized ✓")

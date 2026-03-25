@@ -20,6 +20,7 @@ local rSelectHero   = Remotes:WaitForChild("SelectHero",    10)
 local rHeroSelected = Remotes:WaitForChild("HeroSelected",  10)
 local rMatchFound   = Remotes:WaitForChild("MatchFound",    10)
 local rMatchStart   = Remotes:WaitForChild("RoundStart",    10)
+local rGetUserData  = Remotes:WaitForChild("GetUserData",   10)
 
 -- ============================================================
 -- ДАННЫЕ ГЕРОЕВ
@@ -64,6 +65,8 @@ local confirmed     = false
 local timerThread   = nil
 local currentMode   = "Normal"
 local cardButtons   = {}
+-- Кэш данных игрока (обновляется перед каждым открытием меню)
+local myData = { unlockedHeroes = {}, isFirstTime = true }
 
 -- ============================================================
 -- HELPERS
@@ -475,10 +478,72 @@ local function buildCard(hero, idx)
 	btn.Text                   = ""
 	btn.Parent                 = card
 
-	cardButtons[idx] = { card = card, stroke = cardStroke, hero = hero }
+	-- === LOCK OVERLAY — замок для недоступных героев ===
+	local function buildLockOverlay()
+		local ov = Instance.new("Frame")
+		ov.Name                   = "LockOverlay"
+		ov.Size                   = UDim2.new(1, 0, 1, 0)
+		ov.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+		ov.BackgroundTransparency = 0.42
+		ov.ZIndex                 = 8
+		ov.BorderSizePixel        = 0
+		ov.Parent                 = card
+		corner(ov, 10)
+		local icon = Instance.new("TextLabel")
+		icon.Size                   = UDim2.new(1, 0, 0.55, 0)
+		icon.Position               = UDim2.new(0, 0, 0.16, 0)
+		icon.BackgroundTransparency = 1
+		icon.Text                   = "🔒"
+		icon.TextSize               = 36
+		icon.Font                   = Enum.Font.GothamBold
+		icon.TextXAlignment         = Enum.TextXAlignment.Center
+		icon.ZIndex                 = 9
+		icon.Parent                 = ov
+		local sub = Instance.new("TextLabel")
+		sub.Size                   = UDim2.new(1, -8, 0, 18)
+		sub.Position               = UDim2.new(0, 4, 0.73, 0)
+		sub.BackgroundTransparency = 1
+		sub.Text                   = "ЗАБЛОКИРОВАН"
+		sub.TextSize               = 9
+		sub.TextColor3             = Color3.fromRGB(210, 190, 255)
+		sub.Font                   = Enum.Font.GothamBold
+		sub.TextXAlignment         = Enum.TextXAlignment.Center
+		sub.ZIndex                 = 9
+		sub.Parent                 = ov
+		return ov
+	end
+
+	-- Показываем / скрываем замок в зависимости от myData
+	local lockOverlay = nil
+	local function refreshLock()
+		local unlocked = table.find(myData.unlockedHeroes, hero.id) ~= nil
+		if not unlocked and not lockOverlay then
+			lockOverlay = buildLockOverlay()
+		elseif unlocked and lockOverlay then
+			lockOverlay:Destroy()
+			lockOverlay = nil
+		end
+	end
+	refreshLock()
+
+	cardButtons[idx] = { card = card, stroke = cardStroke, hero = hero, refreshLock = refreshLock }
 
 	btn.MouseButton1Click:Connect(function()
 		if confirmed then return end
+		-- Блок на заблокированных героев — тряска
+		if lockOverlay then
+			local origPos = card.Position
+			local shakeOf = { 6, -6, 4, -4, 0 }
+			for i, dx in ipairs(shakeOf) do
+				task.delay(i * 0.04, function()
+					TweenService:Create(card, TweenInfo.new(0.04), {
+						Position = UDim2.new(origPos.X.Scale, origPos.X.Offset + dx,
+						                     origPos.Y.Scale, origPos.Y.Offset)
+					}):Play()
+				end)
+			end
+			return
+		end
 		selectHero(hero)
 	end)
 
@@ -601,6 +666,18 @@ local function openSelector(mode)
 	currentMode = mode
 	confirmed = false
 	confirmBtn.Text = "ВЫБРАТЬ"
+
+	-- Обновляем кэш данных перед показом меню
+	if rGetUserData then
+		local ok, data = pcall(function() return rGetUserData:InvokeServer() end)
+		if ok and type(data) == "table" then
+			myData = data
+			-- Обновляем замки на всех карточках
+			for _, entry in ipairs(cardButtons) do
+				if entry.refreshLock then entry.refreshLock() end
+			end
+		end
+	end
 
 	-- Режим
 	local mc = MODE_COLOR[mode] or MODE_COLOR.Normal

@@ -12,6 +12,10 @@ local Remotes    = ReplicatedStorage:WaitForChild("Remotes")
 local rSelectHero       = Remotes:WaitForChild("SelectHero")
 local rHeroSelected     = Remotes:WaitForChild("HeroSelected")
 local rCharacterSpawned = Remotes:WaitForChild("CharacterSpawned")
+local rSelectStarter    = Remotes:WaitForChild("SelectStarter")
+local rShowStarter      = Remotes:WaitForChild("ShowStarterSelection")
+local rHeroUnlocked     = Remotes:WaitForChild("HeroUnlocked")
+local rShowNotification = Remotes:WaitForChild("ShowNotification")
 
 -- ============================================================
 -- НОРМАЛИЗАЦИЯ ID (snake_case → PascalCase)
@@ -265,17 +269,75 @@ rSelectHero.OnServerEvent:Connect(function(player, heroId)
 		return
 	end
 
+	-- АНТИ-ЧИТ: проверяем, открыт ли герой у игрока
+	if _G.DataStore then
+		local pData = _G.DataStore.GetData(player.UserId)
+		if pData and pData.unlockedHeroes and #pData.unlockedHeroes > 0 then
+			local normalized = HERO_ID_MAP[heroId] or heroId
+			if not table.find(pData.unlockedHeroes, normalized) then
+				warn(string.format("[Anti-Cheat] %s попытка выбрать заблокированного героя '%s'",
+					player.Name, heroId))
+				return
+			end
+		end
+	end
+
 	local heroData = CharacterService.GetHeroData(heroId)
 	selectedHeroes[player.UserId] = heroData
 	rHeroSelected:FireClient(player, heroData.id, heroData.name)
 
-	-- FIX: синхронизуем с HeroSelector — оба слушают SelectHero, храним в обеих
-	-- чтобы RoundService.StartRound нашёл героя через любой из двух API
+	-- Синхронизуем с HeroSelector.server
 	if _G.HeroSelector and _G.HeroSelector.setSelected then
 		_G.HeroSelector.setSelected(player.UserId, heroData)
 	end
 
+	-- Статистика игр за героя
+	if _G.DataStore then
+		_G.DataStore.RecordHeroPlay(player.UserId, heroData.id)
+	end
+
 	print(string.format("[CharacterService] %s selected: %s", player.Name, heroData.name))
+end)
+
+-- ============================================================
+-- ОНБОРДИНГ: первый выбор стартового героя
+-- ============================================================
+
+local STARTER_HEROES = { "FlameRonin", "IronTitan", "ThunderMonk" }
+
+-- При первом входе игрока отправляем ShowStarterSelection
+Players.PlayerAdded:Connect(function(player)
+	task.delay(3, function()
+		if not player or not player.Parent then return end
+		if not _G.DataStore then return end
+		local pData = _G.DataStore.GetData(player.UserId)
+		if pData and pData.isFirstTime == true then
+			rShowStarter:FireClient(player)
+		end
+	end)
+end)
+
+rSelectStarter.OnServerEvent:Connect(function(player, heroId)
+	if type(heroId) ~= "string" then return end
+
+	-- Проверяем: только стартовые герои допустимы
+	if not table.find(STARTER_HEROES, heroId) then
+		warn(string.format("[CharacterService] %s попытка недопустимого стартера '%s'", player.Name, heroId))
+		return
+	end
+
+	if not _G.DataStore then return end
+	local pData = _G.DataStore.GetData(player.UserId)
+	if not pData then return end
+	if not pData.isFirstTime then return end  -- защита от повторного вызова
+
+	_G.DataStore.UnlockHero(player.UserId, heroId)
+	_G.DataStore.SetFirstTimeDone(player.UserId)
+
+	rHeroUnlocked:FireClient(player, heroId)
+	rShowNotification:FireClient(player,
+		"🎉 Добро пожаловать! Ваш первый герой разблокирован!", "success")
+	print(string.format("[CharacterService] %s выбрал стартера: %s", player.Name, heroId))
 end)
 
 -- ============================================================
