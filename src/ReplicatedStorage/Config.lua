@@ -23,7 +23,7 @@ Config.ROUND_DURATION = {
 	Casual     = 180,
 }
 
-Config.MATCH_RANKS = {"E", "D", "C", "B", "A", "S", "SS"}
+Config.MATCH_RANKS = {"E", "D", "C", "B", "A", "S", "SS", "SSS"}
 
 Config.CAREER_RANKS = {
 	{name = "Iron",     min = 0,    max = 999},

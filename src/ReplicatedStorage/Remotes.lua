@@ -100,6 +100,12 @@ Remotes.EVENTS = {
 	"RankUpGems",				-- server  → client : получены гемы за повышение ранга (rank, gemsAmount)
 	"MasteryLevelUp",			-- server  → client : уровень мастерства повышен (heroId, newLevel, shardsEarned)
 	"MasteryShardUpdate",		-- server  → client : баланс шардов изменился (heroId, newShards, delta)
+
+	-- [AWAKENING TREE]
+	"BuyAwakeningNode",			-- client  → server : купить узел дерева (heroId, nodeId)
+	"ResetAwakeningTree",		-- client  → server : сбросить дерево героя (heroId)
+	"PrestigeHero",				-- client  → server : prestige героя (heroId)
+	"AwakeningNodeUnlocked",	-- server  → client : узел разблокирован (heroId, nodeId, name, desc)
 }
 
 -- ============================================================
@@ -111,6 +117,7 @@ Remotes.FUNCTIONS = {
 	"GetLeaderboard",		-- client  → server : (mode) → [{name, rp, rank}]
 	"GetUserData",			-- client  → server : () → полные данные (unlockedHeroes, mastery, isFirstTime, ...)
 	"RollGacha",			-- client  → server : (chestType) → {success, isDuplicate, heroId, rarity, comp}
+	"GetAwakeningTree",		-- client  → server : (heroId) → {nodes, shards, level, prestige}
 }
 
 -- ============================================================

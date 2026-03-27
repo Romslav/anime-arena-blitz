@@ -376,8 +376,7 @@ rM1Attack.OnServerEvent:Connect(function(player, mousePos)
 	local char = player.Character
 	if not char then return end
 	local origin = char.HumanoidRootPart.Position
-	local heroData = Characters[state.heroId]
-	local dmg = (heroData and heroData.m1Damage) or M1_DAMAGE
+	local dmg = state.m1Damage or M1_DAMAGE
 
 	for _, p in ipairs(getMatchParticipants(player.UserId, state.matchId)) do
 		if not p then continue end
@@ -485,13 +484,19 @@ rUseSkill.OnServerEvent:Connect(function(player, slot, targetPos)
 
 	local cdTable  = cooldowns[player.UserId] or {}
 	local lastUsed = cdTable[slot] or 0
-	local baseCd   = getSkillCooldown(state.heroId, slot)
 
-	local Mods    = getModifiers()
-	local finalCd = baseCd
-	if Mods and Mods.GetCooldownMultiplier and player.Character then
-		local ok, mult = pcall(Mods.GetCooldownMultiplier, player.Character)
-		if ok then finalCd = finalCd * mult end
+	-- Используем модифицированные кулдауны (с учётом Awakening Tree), если есть
+	local finalCd
+	if state.modifiedCooldowns and state.modifiedCooldowns[slot] then
+		finalCd = state.modifiedCooldowns[slot]
+	else
+		local baseCd = getSkillCooldown(state.heroId, slot)
+		finalCd = baseCd
+		local Mods = getModifiers()
+		if Mods and Mods.GetCooldownMultiplier and player.Character then
+			local ok, mult = pcall(Mods.GetCooldownMultiplier, player.Character)
+			if ok then finalCd = finalCd * mult end
+		end
 	end
 
 	local elapsed = tick() - lastUsed
@@ -546,6 +551,28 @@ _G.CombatSystem = CombatSystem
 function CombatSystem.initPlayer(player, heroData, matchId, mode)
 	local maxHp = heroData and heroData.hp or 100
 	mode = mode or "Normal"
+	local heroId = heroData and heroData.id or "FlameRonin"
+
+	-- Awakening Tree: применяем stat-эффекты (HP, m1Damage, speed и т.д.)
+	local awakeningEffects = {}
+	local awakeningPassives = {}
+	local ATS = _G.AwakeningTreeService
+	if ATS and isRealPlayer(player) then
+		local ok2, eff = pcall(ATS.GetActiveEffects, player.UserId, heroId)
+		if ok2 and eff then
+			awakeningEffects = eff
+			-- Применяем stat-эффекты к копии heroData чтобы не мутировать оригинал
+			local modifiedData = {}
+			if heroData then
+				for k, v in pairs(heroData) do modifiedData[k] = v end
+			end
+			ATS.ApplyStatEffects(modifiedData, awakeningEffects)
+			maxHp = modifiedData.hp or maxHp
+			heroData = modifiedData
+			-- Собираем пассивки для быстрого доступа в бою
+			awakeningPassives = ATS.CollectPassives(awakeningEffects)
+		end
+	end
 
 	local Mods = getModifiers()
 	if Mods and Mods.ModifyHP then
@@ -556,7 +583,7 @@ function CombatSystem.initPlayer(player, heroData, matchId, mode)
 	matchState[player.UserId] = {
 		hp         = maxHp,
 		maxHp      = maxHp,
-		heroId     = heroData and heroData.id or "FlameRonin",
+		heroId     = heroId,
 		alive      = true,
 		kills      = 0,
 		deaths     = 0,
@@ -581,6 +608,10 @@ function CombatSystem.initPlayer(player, heroData, matchId, mode)
 			ult_finisher          = false,
 			comeback_win          = false,
 		},
+		-- Awakening Tree
+		awakeningEffects  = awakeningEffects,
+		awakeningPassives = awakeningPassives,
+		m1Damage          = heroData and heroData.m1Damage or M1_DAMAGE,
 	}
 	cooldowns[player.UserId] = {}
 	StatusEffects.ClearPlayer(player.UserId)
@@ -588,11 +619,13 @@ function CombatSystem.initPlayer(player, heroData, matchId, mode)
 	-- Первоначальный HUD
 	fireHUD(player, { hp = maxHp, maxHp = maxHp, ultCharge = 0 })
 
-	-- FIX #3: отправляем реальные кулдауны конкретного героя
-	local cdTable = buildSkillCooldownTable(
-		heroData and heroData.id or "FlameRonin",
-		player.Character
-	)
+	-- Awakening Tree: применяем cooldown-эффекты поверх базовых кулдаунов героя
+	local cdTable = buildSkillCooldownTable(heroId, player.Character)
+	if ATS and #awakeningEffects > 0 then
+		cdTable = ATS.ApplyCooldownEffects(cdTable, awakeningEffects)
+	end
+	-- Сохраняем финальные кулдауны в matchState для использования в skill handler
+	matchState[player.UserId].modifiedCooldowns = cdTable
 	local ok, err = pcall(function()
 		rUpdateSkillCDs:FireClient(player, cdTable)
 	end)
