@@ -93,6 +93,7 @@ Remotes.EVENTS = {
 
 	-- [WISHING WELL — ГАЧА]
 	"WishingWellResult",		-- server  → client : результат кручения (resultData)
+	"OpenWishingWell",			-- server  → client : открыть UI колодца (ProximityPrompt)
 }
 
 -- ============================================================

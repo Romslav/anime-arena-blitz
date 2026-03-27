@@ -39,3 +39,10 @@ luac.out
 *.x86_64
 *.hex
 
+
+# Claude Code internal
+.claude/
+
+# OS files
+.DS_Store
+**/.DS_Store

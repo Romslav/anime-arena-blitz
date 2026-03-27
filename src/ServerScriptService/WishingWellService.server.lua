@@ -180,6 +180,11 @@ rRollGacha.OnServerInvoke = function(player, chestType)
 	-- Отправляем клиенту для анимации
 	pcall(function() rWishingWellResult:FireClient(player, result) end)
 
+	-- Триггерим VFX колодца (вихрь, лучи, стражи)
+	if _G.WishingWellVFX and _G.WishingWellVFX.PlayDrop then
+		pcall(_G.WishingWellVFX.PlayDrop, rarity)
+	end
+
 	print(string.format(
 		"[WishingWell] %s | %s сундук → %s [%s] | дубл=%s | пити=%d/%d",
 		player.Name, chestType, heroId, rarity,

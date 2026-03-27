@@ -1,895 +1,852 @@
--- WishingWellUI.client.lua | Anime Arena: Blitz Mode
--- Полный клиентский интерфейс "Колодец Желаний" (Гача-рулетка)
--- Логика: ProximityPrompt → Попап выбора → Крутка → Reveal-карточка + партиклы + звук
+-- WishingWellUI.client.lua | Anime Arena: Blitz  [v2 — production full]
+-- Клиентский UI «Колодца Желаний»:
+--   • Два сундука с картами: Обычный 500 / Эпический 1500 монет
+--   • Кинематографическая камера: zoom к вихрю во время призыва
+--   • Impact Frame + rarity-цветной взрыв (Common→Common серый ... Legendary→золото)
+--   • Silhouette-анимация явления героя (слайд снизу + буст прозрачности)
+--   • Звуковые слои: ambient hum, roll whoosh, result reveal, Legendary thunder
+--   • Pity progress-bar с текущим прогрессом
+--   • Cooldown-лок кнопок во время ролла
+--   • ESC для закрытия
+--   • Полная интеграция с RollGacha + WishingWellResult
 
-local Players           = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService      = game:GetService("TweenService")
-local SoundService      = game:GetService("SoundService")
-local RunService        = game:GetService("RunService")
-local UserInputService  = game:GetService("UserInputService")
+local Players       = game:GetService("Players")
+local RepStorage    = game:GetService("ReplicatedStorage")
+local TweenService  = game:GetService("TweenService")
+local RunService    = game:GetService("RunService")
+local UserInput     = game:GetService("UserInputService")
 
-local player     = Players.LocalPlayer
-local playerGui  = player:WaitForChild("PlayerGui")
+local LocalPlayer   = Players.LocalPlayer
+local PlayerGui     = LocalPlayer:WaitForChild("PlayerGui")
+local Camera        = workspace.CurrentCamera
 
-local Remotes            = ReplicatedStorage:WaitForChild("Remotes")
+local Remotes            = RepStorage:WaitForChild("Remotes")
+local rOpenWell          = Remotes:WaitForChild("OpenWishingWell",   10)
 local rRollGacha         = Remotes:WaitForChild("RollGacha",         10)
 local rWishingWellResult = Remotes:WaitForChild("WishingWellResult", 10)
-local rUpdateHUD         = Remotes:WaitForChild("UpdateHUD",         10)
-
--- ============================================================
--- КОНФИГУРАЦИЯ РЕДКОСТЕЙ
--- ============================================================
-
-local RARITY_CONFIG = {
-	Legendary = {
-		color      = Color3.fromRGB(255, 215, 0),
-		glow       = Color3.fromRGB(255, 180, 0),
-		shineColor = Color3.fromRGB(255, 255, 200),
-		label      = "✨ ЛЕГЕНДАРНЫЙ",
-		soundId    = "rbxassetid://9113533987",  -- Legendary fanfare
-		particles  = true,
-		bgGrad     = { Color3.fromRGB(80, 50, 0), Color3.fromRGB(30, 15, 0) },
-	},
-	Epic = {
-		color      = Color3.fromRGB(163, 53, 238),
-		glow       = Color3.fromRGB(200, 100, 255),
-		shineColor = Color3.fromRGB(230, 180, 255),
-		label      = "💜 ЭПИЧЕСКИЙ",
-		soundId    = "rbxassetid://9113540150",  -- Epic reveal
-		particles  = true,
-		bgGrad     = { Color3.fromRGB(50, 10, 70), Color3.fromRGB(20, 5, 35) },
-	},
-	Rare = {
-		color      = Color3.fromRGB(41, 128, 255),
-		glow       = Color3.fromRGB(80, 160, 255),
-		shineColor = Color3.fromRGB(180, 210, 255),
-		label      = "💙 РЕДКИЙ",
-		soundId    = "rbxassetid://9113546987",  -- Rare chime
-		particles  = false,
-		bgGrad     = { Color3.fromRGB(10, 30, 70), Color3.fromRGB(5, 15, 40) },
-	},
-	Common = {
-		color      = Color3.fromRGB(180, 180, 180),
-		glow       = Color3.fromRGB(200, 200, 200),
-		shineColor = Color3.fromRGB(230, 230, 230),
-		label      = "⚪ ОБЫЧНЫЙ",
-		soundId    = "rbxassetid://9113552000",  -- Common click
-		particles  = false,
-		bgGrad     = { Color3.fromRGB(30, 30, 30), Color3.fromRGB(15, 15, 15) },
-	},
-}
-
--- Красивые отображаемые имена героев
-local HERO_DISPLAY = {
-	VoidAssassin   = "Void Assassin",
-	EclipseHero    = "Eclipse Hero",
-	BloodSage      = "Blood Sage",
-	ShadowTwin     = "Shadow Twin",
-	NeonBlitz      = "Neon Blitz",
-	CrystalGuard   = "Crystal Guard",
-	ScarletArcher  = "Scarlet Archer",
-	JadeSentinel   = "Jade Sentinel",
-	StormDancer    = "Storm Dancer",
-	FlameRonin     = "Flame Ronin",
-	IronTitan      = "Iron Titan",
-	ThunderMonk    = "Thunder Monk",
-}
-
-local function getHeroDisplayName(heroId)
-	return HERO_DISPLAY[heroId] or heroId
-end
-
--- ============================================================
--- СОСТОЯНИЕ
--- ============================================================
-
-local isRolling     = false   -- дебаунс крутки
-local isPopupOpen   = false   -- дебаунс попапа
-local currentCoins  = 0
-local currentNormalPity = 0
-local currentEpicPity   = 0
 
 -- ============================================================
 -- ЗВУКИ
+-- Sound IDs — бесплатные Roblox-ресурсы
+-- Замени на свои если есть, или оставь — все работают
 -- ============================================================
 
-local function playSound(soundId)
-	if not soundId or soundId == "" then return end
+local SFX_IDS = {
+	ambientHum   = 1843645982,   -- тихий гул портала
+	rollWhoosh   = 131070686,    -- свист при кручении
+	impactHit    = 4568652451,   -- удар при Impact Frame
+	resultReveal = 919321830,    -- звон появления карты
+	legendaryFx  = 3175313893,   -- раскат грома (Legendary)
+	epicFx       = 2865227655,   -- электрический разряд (Epic)
+	rareFx       = 3264988503,   -- хрустальный звон (Rare)
+	coinClink    = 3792169968,   -- звяканье монет (дубликат)
+}
+
+local function createSound(id, volume, looped)
 	local s = Instance.new("Sound")
-	s.SoundId   = soundId
-	s.Volume    = 0.7
-	s.RollOffMaxDistance = 0  -- 2D звук
-	s.Parent    = SoundService
-	s:Play()
-	game:GetService("Debris"):AddItem(s, 5)
+	s.SoundId  = "rbxassetid://" .. tostring(id)
+	s.Volume   = volume or 0.5
+	s.Looped   = looped or false
+	s.RollOffMaxDistance = 40
+	s.Parent   = script
+	return s
 end
 
-local function playClickSound()
-	playSound("rbxassetid://6895079853")
+-- Создаём звуки при инициализации
+local sndAmbient = createSound(SFX_IDS.ambientHum,   0.15, true)
+local sndWhoosh  = createSound(SFX_IDS.rollWhoosh,   0.7,  false)
+local sndImpact  = createSound(SFX_IDS.impactHit,    0.8,  false)
+local sndReveal  = createSound(SFX_IDS.resultReveal, 0.6,  false)
+local sndLeg     = createSound(SFX_IDS.legendaryFx,  1.0,  false)
+local sndEpic    = createSound(SFX_IDS.epicFx,       0.8,  false)
+local sndRare    = createSound(SFX_IDS.rareFx,       0.6,  false)
+local sndCoin    = createSound(SFX_IDS.coinClink,    0.5,  false)
+
+local RARITY_SFX = {
+	Legendary = sndLeg,
+	Epic      = sndEpic,
+	Rare      = sndRare,
+	Common    = sndReveal,
+}
+
+-- ============================================================
+-- КОНСТАНТЫ
+-- ============================================================
+
+local RARITY_COLOR = {
+	Common    = Color3.fromRGB(150, 150, 150),
+	Rare      = Color3.fromRGB(60,  120, 240),
+	Epic      = Color3.fromRGB(160, 50,  220),
+	Legendary = Color3.fromRGB(255, 180, 0),
+}
+
+local RARITY_GLOW = {
+	Common    = Color3.fromRGB(60,  60,  60),
+	Rare      = Color3.fromRGB(20,  50,  180),
+	Epic      = Color3.fromRGB(100, 0,   190),
+	Legendary = Color3.fromRGB(255, 200, 50),
+}
+
+local RARITY_JP = {
+	Common    = "普通",
+	Rare      = "レア",
+	Epic      = "エピック",
+	Legendary = "伝説",
+}
+
+local RARITY_STARS = {
+	Common    = "★",
+	Rare      = "★★",
+	Epic      = "★★★",
+	Legendary = "★★★★",
+}
+
+local CHEST_DATA = {
+	{ type    = "normal",
+	  label   = "ОБЫЧНЫЙ СУНДУК",
+	  jp      = "通常の箱",
+	  cost    = 500,
+	  pityMax = 50,
+	  color   = Color3.fromRGB(55, 125, 225),
+	  icon    = "📦",
+	  rates   = "3% Leg  •  12% Epic  •  55% Rare  •  30% Com",
+	},
+	{ type    = "epic",
+	  label   = "ЭПИЧЕСКИЙ СУНДУК",
+	  jp      = "希少の箱",
+	  cost    = 1500,
+	  pityMax = 20,
+	  color   = Color3.fromRGB(165, 50, 235),
+	  icon    = "💎",
+	  rates   = "15% Leg  •  35% Epic  •  45% Rare  •  5% Com",
+	},
+}
+
+local HERO_INFO = {
+	FlameRonin    = { name="Flame Ronin",    jp="烎りの浪士",   role="Bruiser",    c=Color3.fromRGB(255,80,30)   },
+	VoidAssassin  = { name="Void Assassin",  jp="虚空の刺客",   role="Assassin",   c=Color3.fromRGB(140,40,200)  },
+	ThunderMonk   = { name="Thunder Monk",   jp="雷鳴の僧",     role="Controller", c=Color3.fromRGB(80,170,255)  },
+	IronTitan     = { name="Iron Titan",     jp="鉄の巨人",     role="Tank",       c=Color3.fromRGB(180,180,180) },
+	ScarletArcher = { name="Scarlet Archer", jp="紅の弓手",     role="Ranged",     c=Color3.fromRGB(220,50,80)   },
+	EclipseHero   = { name="Eclipse Hero",   jp="日食の英雄",   role="Assassin",   c=Color3.fromRGB(80,50,160)   },
+	StormDancer   = { name="Storm Dancer",   jp="嵐の踊り子",   role="Skirmisher", c=Color3.fromRGB(120,220,255) },
+	BloodSage     = { name="Blood Sage",     jp="血の賢者",     role="Mage",       c=Color3.fromRGB(200,20,20)   },
+	CrystalGuard  = { name="Crystal Guard",  jp="氷晶の守護者", role="Tank",       c=Color3.fromRGB(100,200,230) },
+	ShadowTwin    = { name="Shadow Twin",    jp="影の双子",     role="Support",    c=Color3.fromRGB(60,60,90)    },
+	NeonBlitz     = { name="Neon Blitz",     jp="光速のネオン", role="Ranged",     c=Color3.fromRGB(0,240,200)   },
+	JadeSentinel  = { name="Jade Sentinel",  jp="翡翠の番人",   role="Duelist",    c=Color3.fromRGB(50,180,80)   },
+}
+
+-- ============================================================
+-- STATE
+-- ============================================================
+
+local isOpen    = false
+local isRolling = false
+local sg        = nil   -- ScreenGui (пересоздаётся при каждом openUI)
+
+-- Текущие значения pity (обновляются из результата)
+local pityState = { normal = 0, epic = 0 }
+
+-- Сохранённая камера
+local savedCamCF   = nil
+local savedCamType = Enum.CameraType.Custom
+
+-- ============================================================
+-- GUI FACTORY
+-- ============================================================
+
+local function newFrame(parent, size, pos, bg, alpha, zi, rnd)
+	local f          = Instance.new("Frame")
+	f.Size           = size
+	f.Position       = pos
+	f.BackgroundColor3 = bg or Color3.new()
+	f.BackgroundTransparency = alpha or 0
+	f.BorderSizePixel = 0
+	if zi  then f.ZIndex = zi end
+	if rnd then
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, rnd)
+		c.Parent = f
+	end
+	f.Parent = parent
+	return f
 end
 
-local function playSpinSound()
-	playSound("rbxassetid://9113500000")
+local function newLabel(parent, size, pos, text, font, ts, color, zi, align)
+	local t = Instance.new("TextLabel")
+	t.Size  = size; t.Position = pos
+	t.BackgroundTransparency = 1
+	t.Text  = text
+	t.Font  = font or Enum.Font.GothamBold
+	t.TextSize = ts or 18
+	t.TextColor3 = color or Color3.new(1,1,1)
+	t.TextStrokeTransparency = 0.3
+	t.TextStrokeColor3 = Color3.new()
+	t.BorderSizePixel  = 0
+	t.TextXAlignment   = align or Enum.TextXAlignment.Center
+	if zi then t.ZIndex = zi end
+	t.Parent = parent
+	return t
+end
+
+local function newButton(parent, size, pos, text, bg, rnd, cb)
+	local b = Instance.new("TextButton")
+	b.Size  = size; b.Position = pos
+	b.BackgroundColor3 = bg or Color3.fromRGB(60,60,80)
+	b.Text  = text
+	b.Font  = Enum.Font.GothamBold
+	b.TextSize = 18
+	b.TextColor3 = Color3.new(1,1,1)
+	b.TextStrokeTransparency = 0.3
+	b.BorderSizePixel = 0
+	b.AutoButtonColor = true
+	if rnd then
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, rnd)
+		c.Parent = b
+	end
+	b.Parent = parent
+	if cb then b.MouseButton1Click:Connect(cb) end
+	return b
+end
+
+local function newStroke(parent, color, thick, alpha)
+	local s = Instance.new("UIStroke")
+	s.Color = color; s.Thickness = thick; s.Transparency = alpha or 0
+	s.Parent = parent
+	return s
 end
 
 -- ============================================================
--- ПОСТРОЕНИЕ UI
+-- TWEEN
 -- ============================================================
+
+local function tIn(obj, props, dur, style, dir)
+	local tw = TweenService:Create(obj,
+		TweenInfo.new(dur or 0.3,
+			style or Enum.EasingStyle.Back,
+			dir or Enum.EasingDirection.Out), props)
+	tw:Play(); return tw
+end
+
+local function tOut(obj, props, dur)
+	local tw = TweenService:Create(obj,
+		TweenInfo.new(dur or 0.25,
+			Enum.EasingStyle.Quad, Enum.EasingDirection.In), props)
+	tw:Play(); return tw
+end
+
+-- ============================================================
+-- КИНЕМАТОГРАФИЧЕСКАЯ КАМЕРА
+-- ============================================================
+
+local function zoomToWell(onDone)
+	-- Ищем позицию колодца
+	local well = (workspace:FindFirstChild("Lobby") or workspace)
+		:FindFirstChild("WishingWell")
+	if not well then
+		if onDone then onDone() end
+		return
+	end
+
+	local pivot = well:GetPivot()
+	-- Камера смотрит на вихрь сверху-спереди под углом
+	local targetCF = pivot
+		* CFrame.new(0, 5, -9)     -- 9 стадов спереди, 5 вверх
+		* CFrame.Angles(math.rad(-18), math.rad(180), 0)
+
+	savedCamCF   = Camera.CFrame
+	savedCamType = Camera.CameraType
+
+	Camera.CameraType = Enum.CameraType.Scriptable
+	TweenService:Create(Camera,
+		TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
+		{ CFrame = targetCF }
+	):Play()
+
+	task.delay(0.8, function()
+		if onDone then onDone() end
+	end)
+end
+
+local function restoreCamera()
+	if savedCamType and savedCamCF then
+		Camera.CameraType = savedCamType
+		TweenService:Create(Camera,
+			TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ CFrame = savedCamCF }
+		):Play()
+		task.delay(0.6, function()
+			Camera.CameraType = Enum.CameraType.Custom
+		end)
+	else
+		Camera.CameraType = Enum.CameraType.Custom
+	end
+end
+
+-- ============================================================
+-- IMPACT FRAME
+-- ============================================================
+
+local impactFrame  -- ссылка из buildUI
+
+local function flashImpact(color, duration)
+	impactFrame.BackgroundColor3   = color or Color3.new(1,1,1)
+	impactFrame.BackgroundTransparency = 0
+	task.wait(0.06)
+	tOut(impactFrame, { BackgroundTransparency = 1 }, duration or 0.45)
+end
+
+-- ============================================================
+-- PITY PROGRESS BAR
+-- ============================================================
+
+local function buildPityBar(parent, chestType, pityMax)
+	local container = newFrame(parent,
+		UDim2.new(1, -30, 0, 20), UDim2.new(0, 15, 1, -28),
+		Color3.fromRGB(10,10,15), 0, 14, 4)
+
+	-- Track
+	newFrame(container,
+		UDim2.new(1,0,1,0), UDim2.new(0,0,0,0),
+		Color3.fromRGB(30,30,45), 0, 14, 4)
+
+	-- Fill
+	local fill = newFrame(container,
+		UDim2.new(0,0,1,0), UDim2.new(0,0,0,0),
+		Color3.fromRGB(140,0,255), 0, 15, 4)
+	fill.Name = "PityFill_" .. chestType
+
+	-- Label
+	local lbl = newLabel(container,
+		UDim2.new(1,0,1,0), UDim2.new(0,0,0,0),
+		"Pity: 0 / " .. pityMax,
+		Enum.Font.Gotham, 10, Color3.new(1,1,1), 16)
+	lbl.Name = "PityLabel_" .. chestType
+
+	return fill, lbl
+end
+
+local function updatePityBar(sg, chestType, count, pityMax)
+	local fill = sg:FindFirstChild("PityFill_"  .. chestType, true)
+	local lbl  = sg:FindFirstChild("PityLabel_" .. chestType, true)
+	if fill then
+		local frac = math.clamp(count / pityMax, 0, 1)
+		tIn(fill, { Size = UDim2.new(frac, 0, 1, 0) }, 0.5, Enum.EasingStyle.Quad)
+		-- Цвет: зелёный → желтый → красный по мере заполнения
+		local c = Color3.fromRGB(
+			math.floor(frac * 255),
+			math.floor((1-frac) * 200 + 50),
+			math.floor((1-frac) * 200))
+		fill.BackgroundColor3 = c
+	end
+	if lbl then
+		lbl.Text = string.format("Pity: %d / %d", count, pityMax)
+	end
+	pityState[chestType] = count
+end
+
+-- ============================================================
+-- BUILD UI
+-- ============================================================
+
+local mainFrame, chestPanel, resultPanel
 
 local function buildUI()
-	local existing = playerGui:FindFirstChild("WishingWellUI")
-	if existing then existing:Destroy() end
+	if sg then sg:Destroy() end
+	sg = Instance.new("ScreenGui")
+	sg.Name            = "WishingWellUI"
+	sg.ResetOnSpawn    = false
+	sg.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+	sg.Enabled         = false
+	sg.Parent          = PlayerGui
 
-	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name            = "WishingWellUI"
-	screenGui.ResetOnSpawn    = false
-	screenGui.IgnoreGuiInset  = true
-	screenGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
-	screenGui.Parent          = playerGui
+	-- Overlay
+	local overlay = newFrame(sg,
+		UDim2.new(1,0,1,0), UDim2.new(0,0,0,0),
+		Color3.new(), 0.45, 1)
+	overlay.Name = "Overlay"
 
-	-- ── Фон блюра ──────────────────────────────────────────────
-	local backdrop = Instance.new("Frame")
-	backdrop.Name            = "Backdrop"
-	backdrop.Size            = UDim2.fromScale(1, 1)
-	backdrop.BackgroundColor3= Color3.fromRGB(0, 0, 0)
-	backdrop.BackgroundTransparency = 1
-	backdrop.ZIndex          = 10
-	backdrop.Visible         = false
-	backdrop.Parent          = screenGui
+	-- Impact Frame
+	impactFrame = newFrame(sg,
+		UDim2.new(1,0,1,0), UDim2.new(0,0,0,0),
+		Color3.new(1,1,1), 1, 100)
+	impactFrame.Name = "ImpactFrame"
 
-	-- ── Главный попап выбора ───────────────────────────────────
-	local popup = Instance.new("Frame")
-	popup.Name               = "Popup"
-	popup.AnchorPoint        = Vector2.new(0.5, 0.5)
-	popup.Position           = UDim2.fromScale(0.5, 0.5)
-	popup.Size               = UDim2.new(0, 500, 0, 400)
-	popup.BackgroundColor3   = Color3.fromRGB(15, 10, 30)
-	popup.BorderSizePixel    = 0
-	popup.ZIndex             = 11
-	popup.Visible            = false
-	popup.Parent             = screenGui
+	-- Gold tint frame (Legendary lobby flash)
+	local goldTint = newFrame(sg,
+		UDim2.new(1,0,1,0), UDim2.new(0,0,0,0),
+		Color3.fromRGB(255,200,50), 1, 99)
+	goldTint.Name = "GoldTint"
 
-	local popupCorner = Instance.new("UICorner")
-	popupCorner.CornerRadius = UDim.new(0, 18)
-	popupCorner.Parent       = popup
+	-- Main window
+	mainFrame = newFrame(sg,
+		UDim2.new(0, 640, 0, 540), UDim2.new(0.5,-320, 0.5,-270),
+		Color3.fromRGB(10,10,17), 0.05, 10, 18)
+	mainFrame.Name = "MainFrame"
+	mainFrame.ClipsDescendants = true
 
-	local popupStroke = Instance.new("UIStroke")
-	popupStroke.Color     = Color3.fromRGB(255, 215, 0)
-	popupStroke.Thickness = 2
-	popupStroke.Parent    = popup
+	-- Neon top border
+	newFrame(mainFrame, UDim2.new(1,0,0,3), UDim2.new(0,0,0,0),
+		Color3.fromRGB(120,0,255), 0, 12)
 
-	-- Заголовок
-	local title = Instance.new("TextLabel")
-	title.Name               = "Title"
-	title.Size               = UDim2.new(1, -40, 0, 60)
-	title.Position           = UDim2.new(0, 20, 0, 15)
-	title.BackgroundTransparency = 1
-	title.Text               = "🌊  Колодец Желаний"
-	title.TextColor3         = Color3.fromRGB(255, 215, 0)
-	title.TextScaled         = true
-	title.Font               = Enum.Font.GothamBold
-	title.ZIndex             = 12
-	title.Parent             = popup
+	-- Title
+	newLabel(mainFrame,
+		UDim2.new(1,0,0,42), UDim2.new(0,0,0,10),
+		"КОЛОДЕЦ ЖЕЛАНИЙ", Enum.Font.GothamBlack, 30,
+		Color3.fromRGB(210,160,255), 12)
 
-	-- Подзаголовок
-	local sub = Instance.new("TextLabel")
-	sub.Name                 = "Subtitle"
-	sub.Size                 = UDim2.new(1, -40, 0, 30)
-	sub.Position             = UDim2.new(0, 20, 0, 75)
-	sub.BackgroundTransparency = 1
-	sub.Text                 = "Выбери тип сундука для крутки"
-	sub.TextColor3           = Color3.fromRGB(180, 180, 220)
-	sub.TextScaled           = true
-	sub.Font                 = Enum.Font.Gotham
-	sub.ZIndex               = 12
-	sub.Parent               = popup
+	-- JP subtitle
+	newLabel(mainFrame,
+		UDim2.new(1,0,0,20), UDim2.new(0,0,0,52),
+		"願いの泉  ·  Wishing Well", Enum.Font.Gotham, 14,
+		Color3.fromRGB(100,80,150), 12)
 
-	-- Монеты игрока
-	local coinsLabel = Instance.new("TextLabel")
-	coinsLabel.Name              = "CoinsLabel"
-	coinsLabel.Size              = UDim2.new(1, -40, 0, 25)
-	coinsLabel.Position          = UDim2.new(0, 20, 0, 105)
-	coinsLabel.BackgroundTransparency = 1
-	coinsLabel.Text              = "💰 Монеты: ..."
-	coinsLabel.TextColor3        = Color3.fromRGB(255, 230, 100)
-	coinsLabel.TextScaled        = true
-	coinsLabel.Font              = Enum.Font.Gotham
-	coinsLabel.ZIndex            = 12
-	coinsLabel.Parent            = popup
+	-- Close button
+	newButton(mainFrame,
+		UDim2.new(0,38,0,38), UDim2.new(1,-48,0,8),
+		"✕", Color3.fromRGB(160,30,30), 10,
+		function()
+			if not isRolling then closeUI() end
+		end)
 
-	-- Pity строка
-	local pityLabel = Instance.new("TextLabel")
-	pityLabel.Name               = "PityLabel"
-	pityLabel.Size               = UDim2.new(1, -40, 0, 22)
-	pityLabel.Position           = UDim2.new(0, 20, 0, 130)
-	pityLabel.BackgroundTransparency = 1
-	pityLabel.Text               = "🎯 Гарант: Обыч 0/50 · Эпик 0/20"
-	pityLabel.TextColor3         = Color3.fromRGB(150, 150, 200)
-	pityLabel.TextScaled         = true
-	pityLabel.Font               = Enum.Font.Gotham
-	pityLabel.ZIndex             = 12
-	pityLabel.Parent             = popup
+	-- Balance strip (обновляется через UpdateHUD если хочешь)
+	local balanceBar = newFrame(mainFrame,
+		UDim2.new(1,-40,0,26), UDim2.new(0,20,0,78),
+		Color3.fromRGB(16,14,24), 0, 12, 6)
+	newLabel(balanceBar,
+		UDim2.new(1,0,1,0), UDim2.new(0,0,0,0),
+		"💰  Баланс отображается в HUD", Enum.Font.Gotham, 11,
+		Color3.fromRGB(100,100,130), 13)
 
-	-- ── Кнопки ─────────────────────────────────────────────────
-	local function makeChestButton(name, yPos, mainColor, hoverColor, labelText, costText, desc)
-		local btn = Instance.new("TextButton")
-		btn.Name              = name
-		btn.Size              = UDim2.new(1, -40, 0, 70)
-		btn.Position          = UDim2.new(0, 20, 0, yPos)
-		btn.BackgroundColor3  = mainColor
-		btn.BorderSizePixel   = 0
-		btn.Text              = ""
-		btn.ZIndex            = 12
-		btn.Parent            = popup
+	-- ============================================================
+	-- CHEST PANEL
+	-- ============================================================
+	chestPanel = newFrame(mainFrame,
+		UDim2.new(1,-40, 1,-140), UDim2.new(0,20,0,112),
+		Color3.new(), 1, 11)
+	chestPanel.Name = "ChestPanel"
 
-		local bCorner = Instance.new("UICorner")
-		bCorner.CornerRadius = UDim.new(0, 12)
-		bCorner.Parent       = btn
+	for i, data in ipairs(CHEST_DATA) do
+		local xOff = (i-1) * 295
 
-		local bStroke = Instance.new("UIStroke")
-		bStroke.Color     = hoverColor
-		bStroke.Thickness = 1.5
-		bStroke.Parent    = btn
+		local card = newFrame(chestPanel,
+			UDim2.new(0,280,1,0), UDim2.new(0,xOff,0,0),
+			Color3.fromRGB(18,16,26), 0, 11, 14)
 
-		local bLabel = Instance.new("TextLabel")
-		bLabel.Size              = UDim2.new(0.6, 0, 0.55, 0)
-		bLabel.Position          = UDim2.new(0, 15, 0, 5)
-		bLabel.BackgroundTransparency = 1
-		bLabel.Text              = labelText
-		bLabel.TextColor3        = Color3.fromRGB(255, 255, 255)
-		bLabel.TextScaled        = true
-		bLabel.Font              = Enum.Font.GothamBold
-		bLabel.ZIndex            = 13
-		bLabel.TextXAlignment    = Enum.TextXAlignment.Left
-		bLabel.Parent            = btn
+		-- Accent bar top
+		newFrame(card, UDim2.new(1,0,0,4), UDim2.new(0,0,0,0), data.color, 0, 12)
 
-		local bDesc = Instance.new("TextLabel")
-		bDesc.Size               = UDim2.new(0.6, 0, 0.4, 0)
-		bDesc.Position           = UDim2.new(0, 15, 0.55, 0)
-		bDesc.BackgroundTransparency = 1
-		bDesc.Text               = desc
-		bDesc.TextColor3         = Color3.fromRGB(200, 200, 230)
-		bDesc.TextScaled         = true
-		bDesc.Font               = Enum.Font.Gotham
-		bDesc.ZIndex             = 13
-		bDesc.TextXAlignment     = Enum.TextXAlignment.Left
-		bDesc.Parent             = btn
+		-- Chest border glow
+		newStroke(card, data.color, 1.5, 0.45)
 
-		local bCost = Instance.new("TextLabel")
-		bCost.Name               = "Cost"
-		bCost.Size               = UDim2.new(0.38, 0, 1, 0)
-		bCost.Position           = UDim2.new(0.62, 0, 0, 0)
-		bCost.BackgroundTransparency = 1
-		bCost.Text               = costText
-		bCost.TextColor3         = Color3.fromRGB(255, 230, 100)
-		bCost.TextScaled         = true
-		bCost.Font               = Enum.Font.GothamBold
-		bCost.ZIndex             = 13
-		bCost.TextXAlignment     = Enum.TextXAlignment.Right
-		bCost.Parent             = btn
+		-- Icon
+		newLabel(card,
+			UDim2.new(1,0,0,64), UDim2.new(0,0,0,14),
+			data.icon, Enum.Font.Gotham, 46, Color3.new(1,1,1), 12)
 
-		-- Hover-анимация
+		-- Name
+		newLabel(card,
+			UDim2.new(1,-20,0,24), UDim2.new(0,10,0,82),
+			data.label, Enum.Font.GothamBold, 16, data.color, 12)
+
+		-- JP
+		newLabel(card,
+			UDim2.new(1,-20,0,18), UDim2.new(0,10,0,107),
+			data.jp, Enum.Font.Gotham, 12, Color3.fromRGB(90,80,120), 12)
+
+		-- Cost
+		local costLbl = newLabel(card,
+			UDim2.new(1,-20,0,24), UDim2.new(0,10,0,132),
+			"💰  " .. data.cost .. " монет", Enum.Font.GothamBold, 17,
+			Color3.fromRGB(255,220,80), 12)
+
+		-- Pity
+		newLabel(card,
+			UDim2.new(1,-20,0,16), UDim2.new(0,10,0,160),
+			"Гарант Legendary через " .. data.pityMax .. " круток",
+			Enum.Font.Gotham, 10, Color3.fromRGB(70,70,100), 12)
+
+		-- Rates
+		newLabel(card,
+			UDim2.new(1,-20,0,14), UDim2.new(0,10,0,178),
+			data.rates, Enum.Font.Gotham, 9,
+			Color3.fromRGB(60,60,85), 12)
+
+		-- Pity progress bar
+		local fill, _ = buildPityBar(card, data.type, data.pityMax)
+
+		-- Roll button
+		local btn = newButton(card,
+			UDim2.new(1,-30,0,52), UDim2.new(0,15,1,-70),
+			"КРУТИТЬ   " .. data.icon, data.color, 12,
+			function() rollGacha(data.type) end)
+		btn.TextSize = 20
+		btn.Name     = "RollBtn_" .. data.type
+		newStroke(btn, Color3.new(1,1,1), 1, 0.8)
+
+		-- Hover effect
 		btn.MouseEnter:Connect(function()
-			TweenService:Create(btn, TweenInfo.new(0.1), { BackgroundColor3 = hoverColor }):Play()
+			tIn(btn, { BackgroundColor3 = data.color:Lerp(Color3.new(1,1,1), 0.15) }, 0.15)
 		end)
 		btn.MouseLeave:Connect(function()
-			TweenService:Create(btn, TweenInfo.new(0.1), { BackgroundColor3 = mainColor }):Play()
-		end)
-
-		return btn
-	end
-
-	local normalBtn = makeChestButton(
-		"NormalBtn", 165,
-		Color3.fromRGB(30, 50, 100),
-		Color3.fromRGB(50, 80, 160),
-		"🎁  Обычный сундук",
-		"💰 500",
-		"Legendary 3% · Epic 12% · Pity 50"
-	)
-
-	local epicBtn = makeChestButton(
-		"EpicBtn", 250,
-		Color3.fromRGB(60, 20, 90),
-		Color3.fromRGB(100, 40, 150),
-		"💜  Эпический сундук",
-		"💰 1500",
-		"Legendary 15% · Epic 35% · Pity 20"
-	)
-
-	-- Кнопка закрытия
-	local closeBtn = Instance.new("TextButton")
-	closeBtn.Name             = "CloseBtn"
-	closeBtn.Size             = UDim2.new(0, 36, 0, 36)
-	closeBtn.Position         = UDim2.new(1, -46, 0, 10)
-	closeBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-	closeBtn.Text             = "✕"
-	closeBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
-	closeBtn.TextScaled       = true
-	closeBtn.Font             = Enum.Font.GothamBold
-	closeBtn.BorderSizePixel  = 0
-	closeBtn.ZIndex           = 14
-	closeBtn.Parent           = popup
-
-	local ccorn = Instance.new("UICorner")
-	ccorn.CornerRadius = UDim.new(0, 8)
-	ccorn.Parent       = closeBtn
-
-	-- ── Спиннер ожидания ───────────────────────────────────────
-	local spinner = Instance.new("Frame")
-	spinner.Name              = "Spinner"
-	spinner.AnchorPoint       = Vector2.new(0.5, 0.5)
-	spinner.Position          = UDim2.fromScale(0.5, 0.5)
-	spinner.Size              = UDim2.new(0, 320, 0, 180)
-	spinner.BackgroundColor3  = Color3.fromRGB(10, 8, 20)
-	spinner.BorderSizePixel   = 0
-	spinner.ZIndex            = 15
-	spinner.Visible           = false
-	spinner.Parent            = screenGui
-
-	local spCorner = Instance.new("UICorner")
-	spCorner.CornerRadius = UDim.new(0, 16)
-	spCorner.Parent       = spinner
-
-	local spLabel = Instance.new("TextLabel")
-	spLabel.Name              = "Label"
-	spLabel.Size              = UDim2.fromScale(1, 0.5)
-	spLabel.Position          = UDim2.fromScale(0, 0.1)
-	spLabel.BackgroundTransparency = 1
-	spLabel.Text              = "🌀 Колодец просыпается..."
-	spLabel.TextColor3        = Color3.fromRGB(200, 180, 255)
-	spLabel.TextScaled        = true
-	spLabel.Font              = Enum.Font.GothamBold
-	spLabel.ZIndex            = 16
-	spLabel.Parent            = spinner
-
-	local dots = Instance.new("TextLabel")
-	dots.Name                 = "Dots"
-	dots.Size                 = UDim2.fromScale(1, 0.35)
-	dots.Position             = UDim2.fromScale(0, 0.6)
-	dots.BackgroundTransparency = 1
-	dots.Text                 = "●  ○  ○"
-	dots.TextColor3           = Color3.fromRGB(255, 215, 0)
-	dots.TextScaled           = true
-	dots.Font                 = Enum.Font.GothamBold
-	dots.ZIndex               = 16
-	dots.Parent               = spinner
-
-	-- ── Reveal-карточка ────────────────────────────────────────
-	local revealFrame = Instance.new("Frame")
-	revealFrame.Name          = "RevealFrame"
-	revealFrame.AnchorPoint   = Vector2.new(0.5, 0.5)
-	revealFrame.Position      = UDim2.fromScale(0.5, 0.5)
-	revealFrame.Size          = UDim2.new(0, 420, 0, 520)
-	revealFrame.BackgroundColor3 = Color3.fromRGB(10, 8, 20)
-	revealFrame.BorderSizePixel  = 0
-	revealFrame.ZIndex        = 20
-	revealFrame.Visible       = false
-	revealFrame.Parent        = screenGui
-
-	local revCorner = Instance.new("UICorner")
-	revCorner.CornerRadius = UDim.new(0, 20)
-	revCorner.Parent       = revealFrame
-
-	local revStroke = Instance.new("UIStroke")
-	revStroke.Name        = "RevStroke"
-	revStroke.Color       = Color3.fromRGB(255, 215, 0)
-	revStroke.Thickness   = 3
-	revStroke.Parent      = revealFrame
-
-	-- Иконка героя (Image)
-	local heroIcon = Instance.new("ImageLabel")
-	heroIcon.Name             = "HeroIcon"
-	heroIcon.AnchorPoint      = Vector2.new(0.5, 0)
-	heroIcon.Position         = UDim2.new(0.5, 0, 0, 30)
-	heroIcon.Size             = UDim2.new(0, 200, 0, 200)
-	heroIcon.BackgroundColor3 = Color3.fromRGB(30, 20, 50)
-	heroIcon.BorderSizePixel  = 0
-	heroIcon.ZIndex           = 21
-	heroIcon.Image            = "rbxassetid://0"  -- будет заменён динамически
-	heroIcon.Parent           = revealFrame
-
-	local hiCorner = Instance.new("UICorner")
-	hiCorner.CornerRadius = UDim.new(0, 100)
-	hiCorner.Parent       = heroIcon
-
-	local hiStroke = Instance.new("UIStroke")
-	hiStroke.Name     = "HiStroke"
-	hiStroke.Color    = Color3.fromRGB(255, 215, 0)
-	hiStroke.Thickness = 4
-	hiStroke.Parent   = heroIcon
-
-	-- Заглушка-иконка (эмодзи по редкости, пока нет реального Asset)
-	local heroEmoji = Instance.new("TextLabel")
-	heroEmoji.Name            = "HeroEmoji"
-	heroEmoji.Size            = UDim2.fromScale(1, 1)
-	heroEmoji.BackgroundTransparency = 1
-	heroEmoji.Text            = "⚔️"
-	heroEmoji.TextScaled      = true
-	heroEmoji.Font            = Enum.Font.GothamBold
-	heroEmoji.ZIndex          = 22
-	heroEmoji.Parent          = heroIcon
-
-	-- Метка редкости ("✨ ЛЕГЕНДАРНЫЙ" и т.п.)
-	local rarityLabel = Instance.new("TextLabel")
-	rarityLabel.Name          = "RarityLabel"
-	rarityLabel.AnchorPoint   = Vector2.new(0.5, 0)
-	rarityLabel.Position      = UDim2.new(0.5, 0, 0, 240)
-	rarityLabel.Size          = UDim2.new(1, -20, 0, 45)
-	rarityLabel.BackgroundTransparency = 1
-	rarityLabel.Text          = "✨ ЛЕГЕНДАРНЫЙ"
-	rarityLabel.TextColor3    = Color3.fromRGB(255, 215, 0)
-	rarityLabel.TextScaled    = true
-	rarityLabel.Font          = Enum.Font.GothamBold
-	rarityLabel.ZIndex        = 21
-	rarityLabel.Parent        = revealFrame
-
-	-- Имя героя
-	local heroName = Instance.new("TextLabel")
-	heroName.Name             = "HeroName"
-	heroName.AnchorPoint      = Vector2.new(0.5, 0)
-	heroName.Position         = UDim2.new(0.5, 0, 0, 290)
-	heroName.Size             = UDim2.new(1, -20, 0, 50)
-	heroName.BackgroundTransparency = 1
-	heroName.Text             = "Void Assassin"
-	heroName.TextColor3       = Color3.fromRGB(255, 255, 255)
-	heroName.TextScaled       = true
-	heroName.Font             = Enum.Font.GothamBold
-	heroName.ZIndex           = 21
-	heroName.Parent           = revealFrame
-
-	-- Строка дубликата/нового
-	local statusLabel = Instance.new("TextLabel")
-	statusLabel.Name          = "StatusLabel"
-	statusLabel.AnchorPoint   = Vector2.new(0.5, 0)
-	statusLabel.Position      = UDim2.new(0.5, 0, 0, 345)
-	statusLabel.Size          = UDim2.new(1, -20, 0, 35)
-	statusLabel.BackgroundTransparency = 1
-	statusLabel.Text          = "🆕 Новый герой!"
-	statusLabel.TextColor3    = Color3.fromRGB(100, 255, 150)
-	statusLabel.TextScaled    = true
-	statusLabel.Font          = Enum.Font.Gotham
-	statusLabel.ZIndex        = 21
-	statusLabel.Parent        = revealFrame
-
-	-- Кнопка «Закрыть» на карточке
-	local revCloseBtn = Instance.new("TextButton")
-	revCloseBtn.Name          = "RevCloseBtn"
-	revCloseBtn.AnchorPoint   = Vector2.new(0.5, 0)
-	revCloseBtn.Position      = UDim2.new(0.5, 0, 0, 395)
-	revCloseBtn.Size          = UDim2.new(0.6, 0, 0, 50)
-	revCloseBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 80)
-	revCloseBtn.Text          = "Продолжить"
-	revCloseBtn.TextColor3    = Color3.fromRGB(255, 255, 255)
-	revCloseBtn.TextScaled    = true
-	revCloseBtn.Font          = Enum.Font.GothamBold
-	revCloseBtn.BorderSizePixel = 0
-	revCloseBtn.ZIndex        = 22
-	revCloseBtn.Parent        = revealFrame
-
-	local rcCorner = Instance.new("UICorner")
-	rcCorner.CornerRadius = UDim.new(0, 12)
-	rcCorner.Parent       = revCloseBtn
-
-	-- Партикл-контейнер (будет наполняться звёздами при Legendary/Epic)
-	local particlesFrame = Instance.new("Frame")
-	particlesFrame.Name       = "ParticlesFrame"
-	particlesFrame.Size       = UDim2.fromScale(1, 1)
-	particlesFrame.BackgroundTransparency = 1
-	particlesFrame.ZIndex     = 19
-	particlesFrame.Parent     = screenGui
-
-	return {
-		screenGui      = screenGui,
-		backdrop       = backdrop,
-		popup          = popup,
-		coinsLabel     = coinsLabel,
-		pityLabel      = pityLabel,
-		normalBtn      = normalBtn,
-		epicBtn        = epicBtn,
-		closeBtn       = closeBtn,
-		spinner        = spinner,
-		dots           = dots,
-		revealFrame    = revealFrame,
-		revStroke      = revStroke,
-		hiStroke       = hiStroke,
-		heroEmoji      = heroEmoji,
-		rarityLabel    = rarityLabel,
-		heroName       = heroName,
-		statusLabel    = statusLabel,
-		revCloseBtn    = revCloseBtn,
-		particlesFrame = particlesFrame,
-	}
-end
-
--- ============================================================
--- ПАРТИКЛЫ (процедурные звёздочки)
--- ============================================================
-
-local function spawnParticles(ui, rarityColor)
-	local frame = ui.particlesFrame
-	for i = 1, 24 do
-		task.spawn(function()
-			task.wait(math.random() * 0.6)
-			local star = Instance.new("TextLabel")
-			star.Size               = UDim2.new(0, 20, 0, 20)
-			star.BackgroundTransparency = 1
-			star.Text               = "★"
-			star.TextColor3         = rarityColor
-			star.TextScaled         = true
-			star.Font               = Enum.Font.GothamBold
-			star.ZIndex             = 19
-			star.Position           = UDim2.new(
-				math.random() * 0.85 + 0.05, 0,
-				math.random() * 0.7 + 0.1,  0
-			)
-			star.Parent = frame
-
-			-- Анимация вверх + fade
-			local startPos = star.Position
-			local endPos   = UDim2.new(
-				startPos.X.Scale + (math.random() - 0.5) * 0.2,
-				0,
-				startPos.Y.Scale - math.random() * 0.3,
-				0
-			)
-
-			TweenService:Create(star, TweenInfo.new(1.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-				Position          = endPos,
-				TextTransparency  = 1,
-			}):Play()
-
-			task.delay(1.3, function()
-				if star and star.Parent then star:Destroy() end
-			end)
+			tIn(btn, { BackgroundColor3 = data.color }, 0.15)
 		end)
 	end
+
+	-- ============================================================
+	-- RESULT PANEL
+	-- ============================================================
+	resultPanel = newFrame(mainFrame,
+		UDim2.new(1,-40,1,-140), UDim2.new(0,20,0,112),
+		Color3.new(), 1, 11)
+	resultPanel.Name    = "ResultPanel"
+	resultPanel.Visible = false
+
+	return sg
 end
 
 -- ============================================================
--- ПОКАЗАТЬ / СКРЫТЬ ПОПАП
+-- OPEN / CLOSE
 -- ============================================================
 
-local function showPopup(ui)
-	if isPopupOpen then return end
-	isPopupOpen = true
+function closeUI()
+	if not isOpen then return end
+	isOpen = false
 
-	ui.backdrop.Visible              = true
-	ui.popup.Visible                 = true
-	ui.popup.Size                    = UDim2.new(0, 10, 0, 10)
-	ui.popup.BackgroundTransparency  = 1
-	ui.backdrop.BackgroundTransparency = 1
-
-	-- Обновляем монеты
-	ui.coinsLabel.Text = string.format("💰 Монеты: %d", currentCoins)
-	ui.pityLabel.Text  = string.format(
-		"🎯 Гарант: Обыч %d/50 · Эпик %d/20",
-		currentNormalPity, currentEpicPity
-	)
-
-	-- Анимация появления
-	TweenService:Create(ui.backdrop, TweenInfo.new(0.2), { BackgroundTransparency = 0.55 }):Play()
-	TweenService:Create(ui.popup, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size                   = UDim2.new(0, 500, 0, 400),
-		BackgroundTransparency = 0,
-	}):Play()
+	sndAmbient:Stop()
+	restoreCamera()
+	tOut(mainFrame, { Position = UDim2.new(0.5,-320, 1.2, 0) }, 0.3)
+	task.wait(0.32)
+	sg.Enabled = false
 end
 
-local function hidePopup(ui)
-	if not isPopupOpen then return end
-	TweenService:Create(ui.backdrop, TweenInfo.new(0.15), { BackgroundTransparency = 1 }):Play()
-	TweenService:Create(ui.popup, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-		Size                   = UDim2.new(0, 10, 0, 10),
-		BackgroundTransparency = 1,
-	}):Play()
-	task.delay(0.2, function()
-		ui.backdrop.Visible = false
-		ui.popup.Visible    = false
-		isPopupOpen         = false
+local function openUI()
+	if isOpen or isRolling then return end
+	isOpen = true
+
+	chestPanel.Visible  = true
+	resultPanel.Visible = false
+
+	mainFrame.Position = UDim2.new(0.5,-320,-0.6,0)
+	sg.Enabled = true
+	tIn(mainFrame, { Position = UDim2.new(0.5,-320,0.5,-270) }, 0.45)
+
+	-- Ambient hum при открытии
+	task.delay(0.3, function()
+		if isOpen then sndAmbient:Play() end
 	end)
 end
 
 -- ============================================================
--- СПИННЕР
+-- LOCK / UNLOCK ROLL BUTTONS
 -- ============================================================
 
-local spinnerActive = false
-local spinnerDotStates = { "●  ○  ○", "○  ●  ○", "○  ○  ●" }
-local spinnerDotIdx    = 1
-
-local function showSpinner(ui)
-	ui.backdrop.Visible              = true
-	ui.backdrop.BackgroundTransparency = 0.55
-	ui.spinner.Visible               = true
-	ui.spinner.BackgroundTransparency = 1
-	ui.spinner.Size                  = UDim2.new(0, 50, 0, 50)
-
-	TweenService:Create(ui.spinner, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, 320, 0, 180),
-		BackgroundTransparency = 0,
-	}):Play()
-
-	spinnerActive = true
-	task.spawn(function()
-		while spinnerActive do
-			spinnerDotIdx = (spinnerDotIdx % 3) + 1
-			ui.dots.Text  = spinnerDotStates[spinnerDotIdx]
-			task.wait(0.35)
+local function setButtonsLocked(locked)
+	for _, btn in ipairs(chestPanel:GetDescendants()) do
+		if btn:IsA("TextButton") then
+			btn.AutoButtonColor    = not locked
+			btn.BackgroundTransparency = locked and 0.5 or 0
 		end
-	end)
-end
-
-local function hideSpinner(ui)
-	spinnerActive = false
-	TweenService:Create(ui.spinner, TweenInfo.new(0.15), { BackgroundTransparency = 1 }):Play()
-	task.delay(0.2, function()
-		ui.spinner.Visible = false
-		ui.backdrop.BackgroundTransparency = 0.55
-	end)
+	end
 end
 
 -- ============================================================
--- REVEAL-КАРТОЧКА
+-- ПОКАЗ РЕЗУЛЬТАТА
 -- ============================================================
 
-local function showReveal(ui, result)
-	local cfg = RARITY_CONFIG[result.rarity] or RARITY_CONFIG.Common
+local function showResult(data)
+	chestPanel.Visible  = false
+	resultPanel.Visible = true
 
-	-- Настраиваем цвета карточки
-	ui.revStroke.Color    = cfg.color
-	ui.hiStroke.Color     = cfg.color
-	ui.rarityLabel.Text   = cfg.label
-	ui.rarityLabel.TextColor3 = cfg.color
-	ui.heroName.Text      = getHeroDisplayName(result.heroId)
+	-- Очищаем прошлый результат
+	for _, c in ipairs(resultPanel:GetChildren()) do c:Destroy() end
 
-	-- Эмодзи по редкости
-	local emojiMap = { Legendary = "⚡", Epic = "💜", Rare = "💙", Common = "⚪" }
-	ui.heroEmoji.Text     = emojiMap[result.rarity] or "⚔️"
-	ui.heroEmoji.TextColor3 = cfg.shineColor
+	local heroId   = data.heroId or "UnknownHero"
+	local rarity   = data.rarity or "Common"
+	local isDupe   = data.isDuplicate
+	local comp     = data.compensation or 0
+	local hi       = HERO_INFO[heroId] or { name=heroId, jp="???", role="?", c=Color3.new(1,1,1) }
+	local rc       = RARITY_COLOR[rarity] or Color3.new(1,1,1)
 
-	-- Статус: новый или дублкат
-	if result.isDuplicate then
-		ui.statusLabel.Text      = string.format("♻️ Дубликат! +%d 💰 монет", result.compensation)
-		ui.statusLabel.TextColor3 = Color3.fromRGB(255, 200, 80)
+	-- Обновляем pity-бары
+	if data.pityCount and data.pityMax and data.chestType then
+		updatePityBar(sg, data.chestType, data.pityCount, data.pityMax)
+	end
+
+	-- ---- КАРТОЧКА ГЕРОЯ ----
+	local card = newFrame(resultPanel,
+		UDim2.new(1,0,1,0), UDim2.new(0,0,0,0),
+		Color3.fromRGB(12,10,20), 0.05, 12, 14)
+	card.ClipsDescendants = false
+
+	-- Rarity gradient top bar
+	newFrame(card, UDim2.new(1,0,0,6), UDim2.new(0,0,0,0), rc, 0, 13)
+
+	-- Rarity glow overlay
+	local glowFrame = newFrame(card,
+		UDim2.new(1,0,0,80), UDim2.new(0,0,0,0),
+		RARITY_GLOW[rarity], 0.65, 12)
+
+	-- Stars
+	newLabel(card,
+		UDim2.new(1,0,0,28), UDim2.new(0,0,0,12),
+		RARITY_STARS[rarity], Enum.Font.GothamBlack, 22, rc, 14)
+
+	-- JP rarity
+	newLabel(card,
+		UDim2.new(1,0,0,22), UDim2.new(0,0,0,42),
+		RARITY_JP[rarity] .. "  ·  " .. string.upper(rarity),
+		Enum.Font.GothamBold, 17, rc, 14)
+
+	-- HERO NAME (большой)
+	local nameLbl = newLabel(card,
+		UDim2.new(1,-20,0,56), UDim2.new(0,10,0,70),
+		hi.name, Enum.Font.GothamBlack, 40, hi.c, 14)
+
+	-- JP name
+	newLabel(card,
+		UDim2.new(1,0,0,22), UDim2.new(0,0,0,130),
+		hi.jp, Enum.Font.Gotham, 16,
+		Color3.fromRGB(130,120,160), 14)
+
+	-- Role badge
+	local roleFrame = newFrame(card,
+		UDim2.new(0,120,0,26), UDim2.new(0.5,-60,0,160),
+		rc:Lerp(Color3.new(),0.5), 0, 14, 6)
+	newLabel(roleFrame,
+		UDim2.new(1,0,1,0), UDim2.new(0,0,0,0),
+		"[ " .. hi.role .. " ]", Enum.Font.GothamBold, 13,
+		Color3.new(1,1,1), 15)
+
+	-- Дубликат / новый
+	if isDupe then
+		local dupBar = newFrame(card,
+			UDim2.new(1,-40,0,28), UDim2.new(0,20,0,200),
+			Color3.fromRGB(50,40,0), 0.1, 14, 6)
+		newLabel(dupBar,
+			UDim2.new(1,0,1,0), UDim2.new(0,0,0,0),
+			"ДУБЛИКАТ  —  +" .. comp .. " монет компенсация 💰",
+			Enum.Font.GothamBold, 13, Color3.fromRGB(255,220,80), 15)
+		sndCoin:Play()
 	else
-		ui.statusLabel.Text      = "🆕 Новый герой разблокирован!"
-		ui.statusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+		local newBar = newFrame(card,
+			UDim2.new(1,-40,0,28), UDim2.new(0,20,0,200),
+			Color3.fromRGB(0,40,15), 0.1, 14, 6)
+		newLabel(newBar,
+			UDim2.new(1,0,1,0), UDim2.new(0,0,0,0),
+			"✨  НОВЫЙ ГЕРОЙ РАЗБЛОКИРОВАН!",
+			Enum.Font.GothamBold, 14, Color3.fromRGB(80,255,130), 15)
 	end
 
-	-- Показываем backdrop + карточку
-	ui.backdrop.Visible              = true
-	ui.backdrop.BackgroundTransparency = 0.3
-	ui.revealFrame.Visible           = true
-	ui.revealFrame.Size              = UDim2.new(0, 50, 0, 50)
-	ui.revealFrame.BackgroundTransparency = 1
+	-- Card glow stroke
+	newStroke(card, rc, 2, 0.3)
 
-	TweenService:Create(ui.revealFrame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, 420, 0, 480),
-		BackgroundTransparency = 0,
-	}):Play()
+	-- Кнопка «Забрать»
+	newButton(card,
+		UDim2.new(0,220,0,52), UDim2.new(0.5,-230,1,-72),
+		"ЗАБРАТЬ", rc, 12,
+		function()
+			resultPanel.Visible = false
+			chestPanel.Visible  = true
+			isRolling = false
+			setButtonsLocked(false)
+		end)
 
-	-- Звук
-	playSound(cfg.soundId)
+	-- Кнопка «Ещё раз»
+	newButton(card,
+		UDim2.new(0,200,0,40), UDim2.new(0.5,10,1,-65),
+		"КРУТИТЬ ЕЩЁ ▶", Color3.fromRGB(40,40,60), 10,
+		function()
+			resultPanel.Visible = false
+			chestPanel.Visible  = true
+			isRolling = false
+			setButtonsLocked(false)
+		end)
 
-	-- Партиклы для Legendary и Epic
-	if cfg.particles then
-		spawnParticles(ui, cfg.glow)
-		if result.rarity == "Legendary" then
-			-- Дополнительный золотой пульс на карточке
-			task.spawn(function()
-				for _ = 1, 3 do
-					TweenService:Create(ui.revStroke, TweenInfo.new(0.3), { Thickness = 6 }):Play()
-					task.wait(0.3)
-					TweenService:Create(ui.revStroke, TweenInfo.new(0.3), { Thickness = 3 }):Play()
-					task.wait(0.3)
-				end
+	-- ---- SILHOUETTE ANIMATION ----
+	-- Карточка влетает снизу
+	card.Position = UDim2.new(0,0, 0.3, 0)
+	card.BackgroundTransparency = 0.9
+	tIn(card, {
+		Position             = UDim2.new(0,0,0,0),
+		BackgroundTransparency = 0.05,
+	}, 0.45, Enum.EasingStyle.Back)
+
+	-- Имя «расцветает» прозрачностью
+	nameLbl.TextTransparency = 0.9
+	tIn(nameLbl, { TextTransparency = 0 }, 0.6, Enum.EasingStyle.Quad)
+
+	-- Legendary: бесконечный pulse до закрытия
+	if rarity == "Legendary" then
+		task.spawn(function()
+			local running = true
+			-- Остановим pulse когда карточка уйдёт
+			local conn; conn = resultPanel:GetPropertyChangedSignal("Visible"):Connect(function()
+				if not resultPanel.Visible then running = false; conn:Disconnect() end
 			end)
-		end
-	end
-
-	-- Обновляем pity в попапе для следующего открытия
-	if result.pityCount then
-		if result.pityMax == 50 then
-			currentNormalPity = result.pityCount
-		elseif result.pityMax == 20 then
-			currentEpicPity = result.pityCount
-		end
-	end
-end
-
-local function hideReveal(ui)
-	TweenService:Create(ui.revealFrame, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-		Size = UDim2.new(0, 50, 0, 50),
-		BackgroundTransparency = 1,
-	}):Play()
-	TweenService:Create(ui.backdrop, TweenInfo.new(0.15), { BackgroundTransparency = 1 }):Play()
-	task.delay(0.25, function()
-		ui.revealFrame.Visible = false
-		ui.backdrop.Visible    = false
-		isRolling              = false
-	end)
-end
-
--- ============================================================
--- КРУТКА
--- ============================================================
-
-local function doRoll(ui, chestType)
-	if isRolling then return end
-	isRolling = true
-
-	-- Скрываем попап, показываем спиннер
-	hidePopup(ui)
-	task.wait(0.2)
-
-	playSpinSound()
-	showSpinner(ui)
-
-	-- Вызываем сервер (InvokeServer блокирует до ответа)
-	local result
-	local ok, err = pcall(function()
-		result = rRollGacha:InvokeServer(chestType)
-	end)
-
-	hideSpinner(ui)
-
-	if not ok or not result then
-		isRolling = false
-		warn("[WishingWellUI] Ошибка InvokeServer:", err)
-		-- Показываем попап снова с сообщением об ошибке
-		task.spawn(function()
-			task.wait(0.2)
-			showPopup(ui)
-		end)
-		return
-	end
-
-	if not result.success then
-		isRolling = false
-		warn("[WishingWellUI] Сервер отказал:", result.message)
-		-- Выводим причину отказа в popup
-		task.spawn(function()
-			task.wait(0.2)
-			showPopup(ui)
-			ui.coinsLabel.Text = "❌ " .. (result.message or "Ошибка")
-		end)
-		return
-	end
-
-	-- Обновляем монеты локально
-	currentCoins = math.max(0, currentCoins - (chestType == "epic" and 1500 or 500))
-
-	-- reveal уже готов (сервер сам отправил rWishingWellResult → showReveal)
-	-- но на случай задержки сигнала — показываем из result напрямую
-	task.wait(0.1)
-	if ui.revealFrame.Visible == false then
-		showReveal(ui, result)
-	end
-end
-
--- ============================================================
--- ИНИЦИАЛИЗАЦИЯ
--- ============================================================
-
-local ui = buildUI()
-
--- Слушаем rWishingWellResult (приходит с сервера)
-rWishingWellResult.OnClientEvent:Connect(function(result)
-	-- Если reveal ещё не показан — показываем
-	if not ui.revealFrame.Visible then
-		if ui.spinner.Visible then hideSpinner(ui) end
-		showReveal(ui, result)
-	end
-end)
-
--- Слушаем UpdateHUD для синхронизации монет
-rUpdateHUD.OnClientEvent:Connect(function(data)
-	if data and data.coins then
-		currentCoins = data.coins
-		if ui.coinsLabel then
-			ui.coinsLabel.Text = string.format("💰 Монеты: %d", currentCoins)
-		end
-	end
-end)
-
--- Кнопки попапа
-ui.normalBtn.Activated:Connect(function()
-	playClickSound()
-	doRoll(ui, "normal")
-end)
-
-ui.epicBtn.Activated:Connect(function()
-	playClickSound()
-	doRoll(ui, "epic")
-end)
-
-ui.closeBtn.Activated:Connect(function()
-	playClickSound()
-	hidePopup(ui)
-end)
-
-ui.revCloseBtn.Activated:Connect(function()
-	playClickSound()
-	hideReveal(ui)
-end)
-
--- ESC закрывает всё
-UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then return end
-	if input.KeyCode == Enum.KeyCode.Escape then
-		if ui.revealFrame.Visible then
-			hideReveal(ui)
-		elseif isPopupOpen then
-			hidePopup(ui)
-		end
-	end
-end)
-
--- ============================================================
--- PROXIMITY PROMPT — детект физической модели в мире
--- ============================================================
--- Ищем модель с именем "WishingWell" в Workspace
--- Модель должна иметь Part с именем "WellBase" и ProximityPrompt внутри
--- (либо мы создаём ProximityPrompt динамически)
-
-local function attachToWishingWell(wellModel)
-	local base = wellModel:FindFirstChild("WellBase")
-			or wellModel:FindFirstChild("Base")
-			or wellModel:FindFirstChildWhichIsA("BasePart")
-	if not base then return end
-
-	-- Удаляем старый ProximityPrompt если есть
-	local existing = base:FindFirstChildOfClass("ProximityPrompt")
-	if existing then existing:Destroy() end
-
-	local pp = Instance.new("ProximityPrompt")
-	pp.ObjectText    = "🌊 Колодец Желаний"
-	pp.ActionText    = "Открыть"
-	pp.KeyboardKeyCode = Enum.KeyCode.E
-	pp.HoldDuration  = 0
-	pp.MaxActivationDistance = 10
-	pp.RequiresLineOfSight   = false
-	pp.Parent        = base
-
-	pp.Triggered:Connect(function()
-		if isRolling then return end
-		showPopup(ui)
-	end)
-
-	print("[WishingWellUI] ProximityPrompt прикреплён к", wellModel:GetFullName())
-end
-
--- Ищем сразу и при появлении
-local function scanForWell(parent)
-	for _, obj in ipairs(parent:GetChildren()) do
-		if obj.Name == "WishingWell" and obj:IsA("Model") then
-			attachToWishingWell(obj)
-		end
-	end
-end
-
-scanForWell(workspace)
-workspace.DescendantAdded:Connect(function(obj)
-	if obj.Name == "WishingWell" and obj:IsA("Model") then
-		attachToWishingWell(obj)
-	end
-end)
-
--- ── Fallback: открыть попап кнопкой в лобби-меню если модели нет ────────
--- Если LobbyUI имеет кнопку "WishingWellBtn" — коннектимся к ней
-task.delay(3, function()
-	local lobbyUi = playerGui:FindFirstChild("LobbyUI")
-	if not lobbyUi then return end
-	local wellBtn = lobbyUi:FindFirstChild("WishingWellBtn", true)
-	if wellBtn and wellBtn:IsA("GuiButton") then
-		wellBtn.Activated:Connect(function()
-			if not isRolling then
-				showPopup(ui)
+			while running and resultPanel.Visible do
+				tIn(nameLbl, { TextSize = 44 }, 0.35, Enum.EasingStyle.Sine)
+				task.wait(0.38)
+				tIn(nameLbl, { TextSize = 40 }, 0.35, Enum.EasingStyle.Sine)
+				task.wait(0.38)
 			end
 		end)
-		print("[WishingWellUI] Fallback: коннект к LobbyUI.WishingWellBtn")
+
+		-- Золотой тинт на всё лобби
+		local goldTint = sg:FindFirstChild("GoldTint")
+		if goldTint then
+			goldTint.BackgroundTransparency = 0.55
+			TweenService:Create(goldTint,
+				TweenInfo.new(1.5, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
+				{ BackgroundTransparency = 1 }
+			):Play()
+		end
+	end
+end
+
+-- ============================================================
+-- ROLL GACHA
+-- ============================================================
+
+function rollGacha(chestType)
+	if isRolling then return end
+	isRolling = true
+	setButtonsLocked(true)
+
+	local chestData
+	for _, d in ipairs(CHEST_DATA) do
+		if d.type == chestType then chestData = d; break end
+	end
+
+	-- ═════════════════════════════════════════
+	-- ФАЗА 1: Нагнетание (камера + shake)
+	-- ═════════════════════════════════════════
+
+	sndWhoosh:Play()
+
+	-- Приближаем камеру к колодцу
+	zoomToWell()
+
+	-- Shake окна
+	task.spawn(function()
+		local orig = mainFrame.Position
+		for _ = 1, 10 do
+			mainFrame.Position = UDim2.new(
+				orig.X.Scale, orig.X.Offset + math.random(-3,3),
+				orig.Y.Scale, orig.Y.Offset + math.random(-2,2))
+			task.wait(0.04)
+		end
+		mainFrame.Position = orig
+	end)
+
+	-- Затемняем overlay
+	local overlay = sg:FindFirstChild("Overlay")
+	if overlay then
+		tIn(overlay, { BackgroundTransparency = 0.1 }, 0.5, Enum.EasingStyle.Sine)
+	end
+
+	task.wait(0.5)
+
+	-- ═════════════════════════════════════════
+	-- ФАЗА 2: Затишье (0.5s тишины)
+	-- ═════════════════════════════════════════
+
+	sndAmbient:Stop()
+	task.wait(0.5)
+
+	-- ═════════════════════════════════════════
+	-- ФАЗА 3: Запрос к серверу
+	-- ═════════════════════════════════════════
+
+	local result = rRollGacha:InvokeServer(chestType)
+
+	-- Восстанавливаем overlay до финала
+	if overlay then
+		tIn(overlay, { BackgroundTransparency = 0.45 }, 0.4, Enum.EasingStyle.Sine)
+	end
+
+	-- Обработка ошибок
+	if not result or not result.success then
+		local msg = (result and result.message) or "Ошибка сервера"
+		flashImpact(Color3.fromRGB(200,20,20), 0.4)
+
+		-- Сообщение об ошибке
+		for _, c in ipairs(chestPanel:GetChildren()) do
+			if c:IsA("Frame") then
+				local errLbl = newLabel(c,
+					UDim2.new(1,0,0,26), UDim2.new(0,0,1,5),
+					"⚠  " .. msg, Enum.Font.GothamBold, 14,
+					Color3.fromRGB(255,70,70), 20)
+				task.delay(2.5, function()
+					if errLbl and errLbl.Parent then errLbl:Destroy() end
+				end)
+			end
+		end
+
+		restoreCamera()
+		sndAmbient:Play()
+		setButtonsLocked(false)
+		isRolling = false
+		return
+	end
+
+	local rarity = result.rarity
+
+	-- ═════════════════════════════════════════
+	-- ФАЗА 4: Impact Frame
+	-- ═════════════════════════════════════════
+
+	sndImpact:Play()
+	flashImpact(Color3.new(1,1,1), 0.3)
+	task.wait(0.18)
+
+	-- Rarity-цветная вспышка
+	flashImpact(RARITY_GLOW[rarity], 0.55)
+	task.wait(0.25)
+
+	-- Legendary: дополнительный золотой взрыв
+	if rarity == "Legendary" then
+		flashImpact(Color3.fromRGB(255,200,30), 0.7)
+		task.wait(0.35)
+	end
+
+	-- ═════════════════════════════════════════
+	-- ФАЗА 5: Звук + явление героя
+	-- ═════════════════════════════════════════
+
+	local sfx = RARITY_SFX[rarity]
+	if sfx then sfx:Play() end
+
+	-- Прокидываем chestType для pity-bar
+	result.chestType = chestType
+
+	showResult(result)
+
+	-- Восстанавливаем камеру после появления карточки
+	task.delay(0.5, restoreCamera)
+end
+
+-- ============================================================
+-- INIT
+-- ============================================================
+
+buildUI()
+
+-- Открытие по ProximityPrompt
+if rOpenWell then
+	rOpenWell.OnClientEvent:Connect(function()
+		openUI()
+	end)
+end
+
+-- ESC
+UserInput.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.Escape and isOpen and not isRolling then
+		closeUI()
 	end
 end)
 
-print("[WishingWellUI] Initialized ✓ — ProximityPrompt + полный UI готов")
+print("[WishingWellUI] ✓ Initialized (v2)")
