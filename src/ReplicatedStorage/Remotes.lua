@@ -94,6 +94,12 @@ Remotes.EVENTS = {
 	-- [WISHING WELL — ГАЧА]
 	"WishingWellResult",		-- server  → client : результат кручения (resultData)
 	"OpenWishingWell",			-- server  → client : открыть UI колодца (ProximityPrompt)
+
+	-- [ВАЛЮТНЫЙ ТРЕУГОЛЬНИК — GEMS / MASTERY]
+	"GemsUpdate",				-- server  → client : баланс гемов изменился (newAmount, delta, reason)
+	"RankUpGems",				-- server  → client : получены гемы за повышение ранга (rank, gemsAmount)
+	"MasteryLevelUp",			-- server  → client : уровень мастерства повышен (heroId, newLevel, shardsEarned)
+	"MasteryShardUpdate",		-- server  → client : баланс шардов изменился (heroId, newShards, delta)
 }
 
 -- ============================================================

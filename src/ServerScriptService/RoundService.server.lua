@@ -307,42 +307,166 @@ local function runBattle(round)
 end
 
 -- ============================================================
+-- ВАЛЮТНЫЙ ТРЕУГОЛЬНИК — ТАБЛИЦЫ НАГРАД
+-- ============================================================
+
+-- Coins за победу по текущему рангу игрока
+local COIN_REWARD_BY_RANK = {
+	E=50, D=65, C=80, B=100, A=120, S=150, SS=185, SSS=220,
+}
+
+-- Множитель монет от финального Style Rank раунда
+local STYLE_COIN_MULTIPLIER = {
+	D=1.0, C=1.0, B=1.2, A=1.5, S=1.5, SS=1.75, SSS=2.0,
+}
+
+-- Итоговые монеты за матч
+local function calcCoinReward(rpRank, styleRank, isWinner)
+	local base  = COIN_REWARD_BY_RANK[rpRank]  or 50
+	local multi = STYLE_COIN_MULTIPLIER[styleRank] or 1.0
+	local result = math.floor(base * multi)
+	if not isWinner then result = math.floor(result * 0.3) end
+	return result
+end
+
+-- Базовые источники Mastery XP за матч (из плана Part 3)
+local MASTERY_XP_TABLE = {
+	win   = 40,
+	loss  = 12,
+	draw  = 20,
+	style = { D=0, C=0, B=8, A=15, S=20, SS=30, SSS=50 },
+	performed_full_combo  = 15,
+	perfect_parry         = 10,
+	ability_kill          = 12,
+	no_damage_taken_round = 25,
+	ult_finisher          = 20,
+	comeback_win          = 18,
+	gacha_duplicate       = 150,
+}
+
+-- Полная формула Mastery XP за матч
+local function calcMasteryXP(matchData)
+	-- matchData: { result, styleRank, matchNumber, actions={}, isPremiumBP, isRanked, streakCount }
+	local base        = MASTERY_XP_TABLE[matchData.result or "loss"] or 12
+	local styleBonus  = MASTERY_XP_TABLE.style[matchData.styleRank or "D"] or 0
+
+	local actionBonus = 0
+	if type(matchData.actions) == "table" then
+		for action, earned in pairs(matchData.actions) do
+			if earned and MASTERY_XP_TABLE[action] then
+				actionBonus = actionBonus + MASTERY_XP_TABLE[action]
+			end
+		end
+	end
+
+	local total = base + styleBonus + actionBonus
+
+	-- Множители (мультипликативно)
+	local multiplier = 1.0
+	local n = matchData.matchNumber or 99
+	if n <= 5  then
+		multiplier = multiplier * 2.0
+	elseif n <= 20 then
+		multiplier = multiplier * 1.5
+	end
+	if matchData.isPremiumBP then multiplier = multiplier * 1.25 end
+	if matchData.isRanked    then multiplier = multiplier * 1.30 end
+	local streak = matchData.streakCount or 0
+	if streak >= 5 then
+		multiplier = multiplier * 1.20
+	elseif streak >= 3 then
+		multiplier = multiplier * 1.10
+	end
+
+	return math.floor(total * multiplier)
+end
+
+-- RP изменение по соотношению рангов соперников
+local RP_CHANGE = {
+	win_vs_lower   = 15,
+	win_vs_equal   = 20,
+	win_vs_higher  = 28,
+	loss_vs_lower  = -22,
+	loss_vs_equal  = -15,
+	loss_vs_higher = -8,
+	draw           = 0,
+}
+
+local RANK_ORDER = { E=1, D=2, C=3, B=4, A=5, S=6, SS=7, SSS=8 }
+
+local function calcRPChange(isWinner, isDraw, playerRank, opponentRank)
+	if isDraw then return RP_CHANGE.draw end
+	local myOrder  = RANK_ORDER[playerRank]   or 1
+	local oppOrder = RANK_ORDER[opponentRank] or 1
+	if isWinner then
+		if myOrder > oppOrder  then return RP_CHANGE.win_vs_lower
+		elseif myOrder < oppOrder then return RP_CHANGE.win_vs_higher
+		else return RP_CHANGE.win_vs_equal end
+	else
+		if myOrder > oppOrder  then return RP_CHANGE.loss_vs_lower
+		elseif myOrder < oppOrder then return RP_CHANGE.loss_vs_higher
+		else return RP_CHANGE.loss_vs_equal end
+	end
+end
+
+-- ============================================================
 -- PHASE: CONCLUSION
 -- ============================================================
 
 local function runConclusion(round, winnerId, reason)
 	round.phase = PHASE.CONCLUSION
 
-	local Combat = getCombatSystem()
+	local Combat    = getCombatSystem()
 	local Modifiers = getGameModeModifiers()
+	local isDraw    = (winnerId == nil or winnerId == 0)
+	local isRanked  = (round.mode == "Ranked")
 
-	-- Собираем финальную статистику
+	-- ── Собираем финальную статистику ──────────────────────────
 	local finalStats = {}
-	local mvpId = nil
-	local maxScore = -1
+	local mvpId      = nil
+	local maxScore   = -1
 
+	-- Определяем ранги всех участников (для RP-расчёта)
+	local playerRanks = {}  -- [userId] = rank string
 	for _, p in ipairs(round.players) do
-		if p and p.Parent then
-			local state = Combat and Combat.getState(p.UserId)
-			local kills   = (state and state.kills)  or 0
-			local damage  = (state and state.damage) or 0
-			local deaths  = (state and state.deaths) or 0
-			finalStats[p.UserId] = {
-				name   = p.Name,
-				kills  = kills,
-				deaths = deaths,
-				damage = math.floor(damage),
-				hermId = (state and state.heroId) or "Unknown",
-			}
-			local score = kills * 100 + damage
-			if score > maxScore then
-				maxScore = score
-				mvpId = p.UserId
-			end
+		local isBot = type(p) == "table" and p._isBot
+		if not isBot and p and p.Parent then
+			local data = _G.DataStore and _G.DataStore.GetData(p.UserId)
+			playerRanks[p.UserId] = data and data.rank or "E"
 		end
 	end
 
-	-- Имя по UserId (работает для бота с userId=-1)
+	-- Ранг оппонента (в матче 1v1 — единственный противник)
+	local function getOpponentRank(myUserId)
+		for uid, rank in pairs(playerRanks) do
+			if uid ~= myUserId then return rank end
+		end
+		return "E"  -- бот или нет оппонента
+	end
+
+	for _, p in ipairs(round.players) do
+		local isBot = type(p) == "table" and p._isBot
+		if isBot then continue end
+		if not p or not p.Parent then continue end
+		local state  = Combat and Combat.getState(p.UserId)
+		local kills  = (state and state.kills)  or 0
+		local damage = (state and state.damage) or 0
+		local deaths = (state and state.deaths) or 0
+		finalStats[p.UserId] = {
+			name      = p.Name,
+			kills     = kills,
+			deaths    = deaths,
+			damage    = math.floor(damage),
+			heroId    = (state and state.heroId) or "Unknown",
+			styleRank = (state and state.styleRank) or "D",
+		}
+		local score = kills * 100 + damage
+		if score > maxScore then
+			maxScore = score
+			mvpId    = p.UserId
+		end
+	end
+
 	local function getNameById(uid)
 		if not uid then return nil end
 		if uid == -1 then return _G.TestBot and _G.TestBot.getName and _G.TestBot.getName() or "[BOT]" end
@@ -350,59 +474,100 @@ local function runConclusion(round, winnerId, reason)
 		return p and p.Name or ("Player#"..uid)
 	end
 
-	local mvpName = getNameById(mvpId) or "None"
+	local mvpName    = getNameById(mvpId) or "None"
 	local winnerName = getNameById(winnerId) or "Draw"
 
-	-- Выдаём XP Мастерства победителю за его стиль боя
-	if winnerId and winnerId ~= 0 then
-		if _G.CombatSystem and _G.CombatSystem.AwardStyleMastery then
-			local ok, err = pcall(_G.CombatSystem.AwardStyleMastery, winnerId)
-			if not ok then
-				warn("[RoundService] AwardStyleMastery failed for", winnerId, ":", err)
-			end
-		end
-	end
-
-	-- Считаем награды по игроку
+	-- ── Награды и Mastery XP для каждого игрока ────────────────
 	for _, p in ipairs(round.players) do
-		if p and p.Parent then
-			local isWinner = (winnerId ~= nil and p.UserId == winnerId)
-			local isMVP    = (p.UserId == mvpId)
+		local isBot = type(p) == "table" and p._isBot
+		if isBot then continue end
+		if not p or not p.Parent then continue end
 
-			local rpGain    = isWinner
-				and (Config.REWARDS and Config.REWARDS.WIN_RATING or 30)
-				or  (Config.REWARDS and Config.REWARDS.LOSE_RATING or 10)
-			local coinsGain = isWinner
-				and (Config.REWARDS and Config.REWARDS.WIN_COINS or 50)
-				or  (Config.REWARDS and Config.REWARDS.LOSE_COINS or 15)
+		local uid      = p.UserId
+		local isWinner = not isDraw and uid == winnerId
+		local isMVP    = (uid == mvpId)
 
-			if isMVP then
-				rpGain    = rpGain    + (Config.REWARDS and Config.REWARDS.MVP_BONUS_RP    or 10)
-				coinsGain = coinsGain + (Config.REWARDS and Config.REWARDS.MVP_BONUS_COINS or 20)
-			end
+		local state    = Combat and Combat.getState(uid)
+		local styleRank = (state and state.styleRank) or "D"
+		local heroId    = (state and state.heroId)    or "FlameRonin"
 
-			if Modifiers and Modifiers.CalculateRewards then
-				rpGain, coinsGain = Modifiers.CalculateRewards(round.mode, rpGain, coinsGain)
-			end
+		-- Данные игрока для расчётов
+		local pData        = _G.DataStore and _G.DataStore.GetData(uid)
+		local playerRank   = (pData and pData.rank) or "E"
+		local opponentRank = getOpponentRank(uid)
+		local isPremiumBP  = pData and pData.bp and pData.bp.premium or false
+		local winStreak    = (pData and pData.stats and pData.stats.currentWinStreak) or 0
 
-			local resultData = {
-				winnerId   = winnerId or 0,
-				winnerName = winnerName,
-				stats      = finalStats,
-				rewards    = { rp = math.floor(rpGain), coins = math.floor(coinsGain) },
-				mvpName    = mvpName,
-				isMVP      = isMVP,
-				mode       = round.mode,
-				reason     = reason or "normal",
-			}
+		-- matchNumber для героя (сколько матчей сыграно ДО этого)
+		local heroEntry    = pData and pData.heroes and pData.heroes[heroId]
+		local matchNumber  = (heroEntry and heroEntry.totalMatches or 0)
 
-			RoundEnd:FireClient(p, resultData)
-
-			-- Сохраняем в DataStore
-			if _G.DataStore and _G.DataStore.AddPlayerRewards then
-				_G.DataStore.AddPlayerRewards(p.UserId, rpGain, coinsGain)
-			end
+		-- ── RP ──────────────────────────────────────────────────
+		local rpGain = 0
+		if isDraw then
+			rpGain = RP_CHANGE.draw
+		else
+			rpGain = calcRPChange(isWinner, false, playerRank, opponentRank)
 		end
+
+		-- MVP бонус RP
+		if isMVP then
+			rpGain = rpGain + (Config.REWARDS and Config.REWARDS.MVP_BONUS_RP or 10)
+		end
+
+		-- GameModeModifiers
+		local coinsRaw = calcCoinReward(playerRank, styleRank, isWinner)
+		if isMVP then
+			coinsRaw = coinsRaw + (Config.REWARDS and Config.REWARDS.MVP_BONUS_COINS or 20)
+		end
+		if Modifiers and Modifiers.CalculateRewards then
+			rpGain, coinsRaw = Modifiers.CalculateRewards(round.mode, rpGain, coinsRaw)
+		end
+
+		-- ── Mastery XP ──────────────────────────────────────────
+		local actions = {}
+		if Combat and Combat.GetMatchActions then
+			actions = Combat.GetMatchActions(uid, isWinner)
+		end
+
+		local masteryXP = calcMasteryXP({
+			result       = isDraw and "draw" or (isWinner and "win" or "loss"),
+			styleRank    = styleRank,
+			matchNumber  = matchNumber,
+			actions      = actions,
+			isPremiumBP  = isPremiumBP,
+			isRanked     = isRanked,
+			streakCount  = isWinner and winStreak or 0,
+		})
+
+		-- ── Применяем награды ───────────────────────────────────
+		if _G.DataStore then
+			-- Монеты и RP (также обновляет статистику wins/losses/streak)
+			_G.DataStore.AddPlayerRewards(uid, rpGain, coinsRaw, isWinner)
+			-- Mastery XP
+			_G.DataStore.AddMasteryXP(uid, heroId, masteryXP)
+			-- Обновляем статистику матча
+			_G.DataStore.RecordMatchStats(uid, heroId, isWinner, styleRank,
+				(state and state.damage) or 0)
+		end
+
+		-- ── Отправляем результат клиенту ────────────────────────
+		local resultData = {
+			winnerId   = winnerId or 0,
+			winnerName = winnerName,
+			stats      = finalStats,
+			rewards    = {
+				rp          = math.floor(rpGain),
+				coins       = math.floor(coinsRaw),
+				masteryXP   = masteryXP,
+				styleRank   = styleRank,
+			},
+			mvpName    = mvpName,
+			isMVP      = isMVP,
+			mode       = round.mode,
+			reason     = reason or "normal",
+		}
+		RoundEnd:FireClient(p, resultData)
 	end
 
 	print(string.format(

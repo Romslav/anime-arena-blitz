@@ -140,9 +140,13 @@ rRollGacha.OnServerInvoke = function(player, chestType)
 	local compensation = 0
 
 	if isDuplicate then
-		-- Компенсация за дубликат
+		-- Компенсация за дубликат: монеты + большой буст Mastery XP за героя
 		compensation = DUPE_COMPENSATION[rarity] or 50
 		_G.DataStore.AddPlayerRewards(player.UserId, 0, compensation)
+		-- Mastery XP +150 за дубликат (ключевой источник прогрессии героя)
+		if _G.DataStore.AddMasteryXP then
+			_G.DataStore.AddMasteryXP(player.UserId, heroId, 150)
+		end
 	else
 		-- Разблокируем героя
 		_G.DataStore.UnlockHero(player.UserId, heroId)
