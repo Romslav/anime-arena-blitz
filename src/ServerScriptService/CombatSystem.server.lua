@@ -185,6 +185,15 @@ local function dealDamage(attacker, victim, amount, dmgType)
 	end
 	vState.hp = math.max(0, vState.hp - final)
 
+	-- Трекинг для Mastery XP: damageTaken + minHpRatio жертвы
+	vState.damageTaken = (vState.damageTaken or 0) + final
+	if vState.maxHp > 0 then
+		local ratio = vState.hp / vState.maxHp
+		if ratio < (vState.minHpRatio or 1.0) then
+			vState.minHpRatio = ratio
+		end
+	end
+
 	-- ============================================================
 	-- STYLISH! — ранг стиля атакующего
 	-- ============================================================
@@ -261,7 +270,17 @@ local function dealDamage(attacker, victim, amount, dmgType)
 		vState.deaths = vState.deaths + 1
 		if attackerId then
 			local aState = matchState[attackerId]
-			if aState then aState.kills = aState.kills + 1 end
+			if aState then
+				aState.kills = aState.kills + 1
+				-- Action flags: ult_finisher / ability_kill
+				if aState.actionFlags then
+					if dmgType == "Ultimate" then
+						aState.actionFlags.ult_finisher = true
+					elseif dmgType ~= "Normal" and dmgType ~= "DoT" then
+						aState.actionFlags.ability_kill = true
+					end
+				end
+			end
 		end
 
 		-- FIX #2: правильно определяем время респавна из режима матча
@@ -389,6 +408,12 @@ rM1Attack.OnServerEvent:Connect(function(player, mousePos)
 			local heroId = state.heroId
 			m1Combo[player.UserId] = (m1Combo[player.UserId] or 0) + 1
 			local combo = m1Combo[player.UserId]
+
+			-- Full combo (5+ ударов подряд) → флаг для Mastery XP
+			if combo % 5 == 0 then
+				local aflags = state.actionFlags
+				if aflags then aflags.performed_full_combo = true end
+			end
 
 			if heroId == "FlameRonin" and combo % 5 == 0 then
 				if victimId then StatusEffects.ApplyBurn(victimId, 3, 2) end
@@ -545,6 +570,17 @@ function CombatSystem.initPlayer(player, heroData, matchId, mode)
 		styleScore  = 0,
 		lastHitTime = 0,
 		styleRank   = "D",
+		-- Action tracking (для расчёта Mastery XP в RoundService)
+		damageTaken        = 0,
+		minHpRatio         = 1.0,
+		actionFlags = {
+			performed_full_combo  = false,
+			perfect_parry         = false,
+			ability_kill          = false,
+			no_damage_taken_round = false,
+			ult_finisher          = false,
+			comeback_win          = false,
+		},
 	}
 	cooldowns[player.UserId] = {}
 	StatusEffects.ClearPlayer(player.UserId)
@@ -579,6 +615,7 @@ function CombatSystem.resetPlayer(userId)
 	state.styleScore  = 0   -- сброс Stylish! при респавне
 	state.lastHitTime = 0
 	state.styleRank   = "D"
+	-- НЕ сбрасываем actionFlags, damageTaken, minHpRatio — они за весь матч
 	StatusEffects.ClearPlayer(userId)
 	cooldowns[userId] = {}
 	local p = Players:GetPlayerByUserId(userId)
@@ -605,6 +642,34 @@ end
 -- Экспортируем её как публичный метод CombatSystem.
 CombatSystem.applyDamage = dealDamage
 
+--- Записать выполненное действие в бою (для внешних систем: скилл-хендлеры, парри)
+--- actionKey: "perfect_parry" | "ability_kill" | "ult_finisher" | "performed_full_combo" | ...
+function CombatSystem.RecordAction(userId, actionKey)
+	local state = matchState[userId]
+	if not state or not state.actionFlags then return end
+	state.actionFlags[actionKey] = true
+end
+
+--- Получить итоговые флаги действий и статистику для расчёта Mastery XP
+--- Вычисляет comeback_win и no_damage_taken_round здесь (зависят от финального HP)
+function CombatSystem.GetMatchActions(userId, isWinner)
+	local state = matchState[userId]
+	if not state then return {} end
+
+	local flags = {}
+	if state.actionFlags then
+		for k, v in pairs(state.actionFlags) do
+			flags[k] = v
+		end
+	end
+
+	-- Финальные вычисляемые флаги
+	flags.no_damage_taken_round = (state.damageTaken or 0) == 0
+	flags.comeback_win = isWinner and (state.minHpRatio or 1.0) < 0.2
+
+	return flags
+end
+
 -- ============================================================
 -- УБОРКА
 -- ============================================================
@@ -620,25 +685,10 @@ end)
 -- МАСТЕРСТВО за стиль по итогам матча
 -- ============================================================
 
-local STYLE_MASTERY_XP = { D=5, C=8, B=12, A=18, S=25, SS=35, SSS=50 }
-
---- Вызывается из RoundService после завершения раунда. userId — победитель.
+-- AwardStyleMastery оставлен для обратной совместимости.
+-- Полный расчёт Mastery XP теперь делает RoundService через CalcMasteryXP.
 function CombatSystem.AwardStyleMastery(userId)
-	if not _G.DataStore then return end
-	local state = matchState[userId]
-	if not state or not state.heroId or not state.styleRank then return end
-
-	local xp = STYLE_MASTERY_XP[state.styleRank] or 5
-	local leveled = _G.DataStore.AddMasteryXP(userId, state.heroId, xp)
-
-	local player = Players:GetPlayerByUserId(userId)
-	if player and leveled then
-		local rNotif = Remotes:FindFirstChild("ShowNotification")
-		if rNotif then
-			rNotif:FireClient(player,
-				"⭐ Мастерство " .. state.heroId .. " повышено!", "mastery")
-		end
-	end
+	-- no-op: логика перенесена в RoundService.runConclusion
 end
 
 print("[CombatSystem] Initialized ✓")
