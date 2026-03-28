@@ -21,14 +21,14 @@ local rNotify       = Remotes:WaitForChild("ShowNotification")
 local NPC_CONFIG = {
 	["ArenasMaster"] = {
 		actionText   = "Выбрать режим",
-		objectText   = "Мастер Арен",
+		objectText   = "Мастер Арен「SSS」",
 		holdDuration = 0.3,
-		nameColor    = Color3.fromRGB(255, 220, 80),
+		nameColor    = Color3.fromRGB(255, 80, 60),
 		onTrigger    = function(player)
 			if _G.RoundService then
 				local roundId = _G.RoundService.GetPlayerRound(player.UserId)
 				if roundId then
-					rNotify:FireClient(player, "⚔️ Вы уже в бою", "warning")
+					rNotify:FireClient(player, "Вы уже в бою", "warning")
 					return
 				end
 			end
