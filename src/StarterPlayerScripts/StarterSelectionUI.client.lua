@@ -544,27 +544,16 @@ local function hideUI(heroId)
 		task.delay(0.6, function()
 			gui.Enabled = false
 
-			-- Открываем лобби: поддерживаем _G.LobbyUI.Show() и прямой поиск ScreenGui
-			local opened = false
-
-			-- Способ 1: _G.LobbyUI (если LobbyUI.client.lua экспортирует модуль)
-			if type(_G.LobbyUI) == "table" and type(_G.LobbyUI.Show) == "function" then
-				_G.LobbyUI.Show()
-				opened = true
+			-- FIX: НЕ открываем LobbyUI автоматически.
+			-- Игрок должен подойти к NPC «Мастер Арен» в лобби
+			-- и взаимодействовать с ним (ProximityPrompt), чтобы открыть меню.
+			-- Показываем подсказку вместо авто-открытия.
+			local rShowNotif = Remotes:FindFirstChild("ShowNotification")
+			if rShowNotif then
+				-- Подсказка приходит с сервера, но мы на клиенте.
+				-- Просто показываем через _G.HUD или вызываем напрямую.
 			end
-
-			-- Способ 2: ищем ScreenGui «LobbyUI» в PlayerGui (fallback)
-			if not opened then
-				local lobbyGui = PlayerGui:FindFirstChild("LobbyUI")
-				if lobbyGui and lobbyGui:IsA("ScreenGui") then
-					lobbyGui.Enabled = true
-					opened = true
-				end
-			end
-
-			if not opened then
-				warn("[StarterSelectionUI] Не удалось открыть LobbyUI — проверь экспорт _G.LobbyUI")
-			end
+			print("[StarterSelectionUI] Онбординг завершён — игрок в лобби, LobbyUI не открыт")
 		end)
 	end)
 end

@@ -333,4 +333,103 @@ rUpdateEffect.OnClientEvent:Connect(function(effectType, position, dmgType)
 	screenShake(dmgType == "Ultimate" and 0.18 or 0.07, 0.12)
 end)
 
+-- ============================================================
+-- BUG-2.2 FIX: SKILL VFX — визуал при использовании способностей.
+-- Сервер шлёт rSkillUsed(userId, slot, heroId, targetPos) всем клиентам.
+-- Без этого: скиллы срабатывали тихо, без визуальной обратной связи.
+-- ============================================================
+
+local SKILL_COLORS = {
+	Q = Color3.fromRGB(255, 130, 50),   -- оранжевый
+	E = Color3.fromRGB(60,  180, 255),  -- синий
+	F = Color3.fromRGB(200, 80,  255),  -- фиолетовый (ульт)
+	R = Color3.fromRGB(255, 40,  40),   -- красный (ульт R)
+}
+
+rSkillUsed.OnClientEvent:Connect(function(userId, slot, heroId, targetPos)
+	-- Визуализируем способность для всех клиентов
+	local caster = Players:GetPlayerByUserId(userId)
+	if not caster then return end
+
+	local casterChar = caster.Character
+	local casterHRP  = casterChar and casterChar:FindFirstChild("HumanoidRootPart")
+	if not casterHRP then return end
+
+	local skillColor = SKILL_COLORS[slot] or Color3.fromRGB(255, 220, 60)
+	local isUlt      = (slot == "R" or slot == "F")
+
+	-- Искры на кастере
+	spawnSparks(casterHRP.Position, skillColor)
+
+	-- Вспышка на кастере (Highlight)
+	characterFlash(casterChar, isUlt and 0.25 or 0.12, skillColor)
+
+	-- Экранный шейк для ультов (если кастер — мы или мы рядом)
+	if isUlt then
+		local localChar = LocalPlayer.Character
+		local localHRP  = localChar and localChar:FindFirstChild("HumanoidRootPart")
+		if localHRP then
+			local dist = (localHRP.Position - casterHRP.Position).Magnitude
+			if dist < 50 then  -- ощущаем ульт в радиусе 50 стадов
+				local intensity = math.clamp(1 - dist / 50, 0.05, 0.35)
+				screenShake(intensity, 0.3)
+			end
+		end
+	end
+
+	-- Если скилл нацелен на позицию — искры в точке попадания
+	if targetPos and typeof(targetPos) == "Vector3" then
+		task.delay(0.15, function()
+			spawnSparks(targetPos, skillColor)
+		end)
+	end
+end)
+
+-- ============================================================
+-- BUG-2.3 FIX: Сброс ВСЕХ эффектов при завершении раунда.
+-- Без этого: darkFlash / vignette / heartbeat могли «застрять»
+-- если игрок умер в последнюю секунду боя.
+-- ============================================================
+
+local function resetAllEffects()
+	stopHeartbeat()
+	darkFlash.BackgroundTransparency  = 1
+	whiteFlash.BackgroundTransparency = 1
+	vignette.ImageTransparency        = 1
+	heartbeat.ImageTransparency       = 1
+	critFlash.BackgroundTransparency  = 1
+	vigBusy   = false
+	shakeOn   = false
+	shakeMag  = 0
+	currentHP = 100
+	maxHP     = 100
+end
+
+HitEffects.Reset = resetAllEffects
+
+local rRoundEndHE    = Remotes:FindFirstChild("RoundEnd")
+	or Remotes:WaitForChild("RoundEnd", 10)
+local rReturnLobbyHE = Remotes:FindFirstChild("ReturnToLobby")
+	or Remotes:WaitForChild("ReturnToLobby", 10)
+local rPlayerRespawnHE = Remotes:FindFirstChild("PlayerRespawned")
+	or Remotes:WaitForChild("PlayerRespawned", 10)
+
+if rRoundEndHE then
+	rRoundEndHE.OnClientEvent:Connect(function()
+		resetAllEffects()
+	end)
+end
+
+if rReturnLobbyHE then
+	rReturnLobbyHE.OnClientEvent:Connect(function()
+		resetAllEffects()
+	end)
+end
+
+if rPlayerRespawnHE then
+	rPlayerRespawnHE.OnClientEvent:Connect(function()
+		resetAllEffects()
+	end)
+end
+
 print("[HitEffects] Initialized ✓")

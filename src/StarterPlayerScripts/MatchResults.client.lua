@@ -32,11 +32,12 @@ gui.IgnoreGuiInset  = true
 gui.Enabled         = false
 gui.Parent          = PlayerGui
 
--- Тёмный полупрозрачный фон
+-- BUG-4.2 FIX: Увеличена непрозрачность оверлея (было 0.45 → 0.2).
+-- Старое значение пропускало слишком много фона, текст плохо читался.
 local overlay = Instance.new("Frame")
 overlay.Size                   = UDim2.new(1,0,1,0)
 overlay.BackgroundColor3       = Color3.fromRGB(0,0,0)
-overlay.BackgroundTransparency = 0.45
+overlay.BackgroundTransparency = 0.2
 overlay.BorderSizePixel        = 0
 overlay.Parent                 = gui
 
@@ -150,11 +151,13 @@ rpLbl.TextXAlignment        = Enum.TextXAlignment.Center
 rpLbl.ZIndex                = 4
 rpLbl.Parent                = rewardsFrame
 
+-- BUG-4.2 FIX: Заменён emoji 💰 на текстовый " Coins" — emoji
+-- могли не рендериться на всех платформах и сбивали выравнивание.
 local coinsLbl = Instance.new("TextLabel")
 coinsLbl.Size                  = UDim2.new(0.5,0,1,0)
 coinsLbl.Position              = UDim2.new(0.5,0,0,0)
 coinsLbl.BackgroundTransparency = 1
-coinsLbl.Text                  = "+0 💰"
+coinsLbl.Text                  = "+0 Coins"
 coinsLbl.TextSize              = 22
 coinsLbl.TextColor3            = Color3.fromRGB(255,200,50)
 coinsLbl.Font                  = Enum.Font.GothamBold
@@ -371,6 +374,31 @@ local function showResults(data)
 	local mvpId = data.mvpName
 	mvpBadge.Visible = (data.isMVP == true)
 
+	-- BUG-4.2 FIX: Золотое свечение вокруг карточки для MVP
+	local mvpGlow = card:FindFirstChild("MVPGlow")
+	if mvpGlow then mvpGlow:Destroy() end
+	if data.isMVP then
+		local glow = Instance.new("UIStroke")
+		glow.Name         = "MVPGlow"
+		glow.Color        = Color3.fromRGB(255, 200, 30)
+		glow.Thickness    = 3
+		glow.Transparency = 0.2
+		glow.Parent       = card
+		-- Пульсация золотого свечения
+		task.spawn(function()
+			while gui.Enabled and glow and glow.Parent do
+				TweenService:Create(glow, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+					Transparency = 0.6
+				}):Play()
+				task.wait(0.6)
+				TweenService:Create(glow, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+					Transparency = 0.1
+				}):Play()
+				task.wait(0.6)
+			end
+		end)
+	end
+
 	-- Строки статистики
 	task.delay(0.25, function()
 		buildHeader()
@@ -387,7 +415,8 @@ local function showResults(data)
 	local rewards = data.rewards or { rp = 0, coins = 0 }
 	task.delay(0.5, function()
 		animateCounter(rpLbl,    rewards.rp    or 0, "+", " RP")
-		animateCounter(coinsLbl, rewards.coins or 0, "+", " 💰")
+		-- BUG-4.2 FIX: " Coins" вместо emoji " 💰"
+		animateCounter(coinsLbl, rewards.coins or 0, "+", " Coins")
 	end)
 end
 

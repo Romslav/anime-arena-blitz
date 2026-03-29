@@ -745,6 +745,18 @@ _G.TestBot = {
 		spawnBot()
 	end,
 
+	-- Телепортировать бота на указанную позицию (CFrame)
+	-- Вызывается из RoundService.teleportToArena при старте раунда.
+	teleport    = function(cf)
+		if not botModel then return end
+		local hrp = botModel:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			hrp.CFrame = cf
+			print(string.format("[TestBot] Teleported to (%.0f, %.0f, %.0f)",
+				cf.Position.X, cf.Position.Y, cf.Position.Z))
+		end
+	end,
+
 	-- Удалить модель и сбросить состояние (например, при завершении раунда)
 	despawn     = function()
 		if botModel then

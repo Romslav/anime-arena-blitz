@@ -65,13 +65,40 @@ end
 -- WAIT FOR MODEL
 -- ============================================================
 
+-- BUG-3.2 FIX: Увеличены таймауты ожидания и добавлен retry-цикл.
+-- Модель может появиться с задержкой если Rojo синхронизируется медленно.
 local function waitForModel()
-	local lobby = workspace:WaitForChild("Lobby", 30)
-	if not lobby then error("[ArenaMasterNPCBuilder] workspace.Lobby not found") end
-	local npcs = lobby:WaitForChild("NPCs", 10)
-	if not npcs then error("[ArenaMasterNPCBuilder] workspace.Lobby.NPCs not found") end
-	local model = npcs:WaitForChild(CFG.NPC_MODEL_NAME, 10)
-	if not model then error("[ArenaMasterNPCBuilder] ArenasMaster model not found") end
+	local lobby
+	for attempt = 1, 20 do
+		lobby = workspace:FindFirstChild("Lobby")
+		if lobby then break end
+		warn("[ArenaMasterNPCBuilder] Waiting for workspace.Lobby... attempt " .. attempt)
+		task.wait(2)
+	end
+	if not lobby then
+		warn("[ArenaMasterNPCBuilder] workspace.Lobby not found after 40s — skipping build")
+		return nil
+	end
+
+	local npcs = lobby:WaitForChild("NPCs", 15)
+	if not npcs then
+		warn("[ArenaMasterNPCBuilder] workspace.Lobby.NPCs not found — skipping build")
+		return nil
+	end
+
+	local model = npcs:WaitForChild(CFG.NPC_MODEL_NAME, 15)
+	if not model then
+		warn("[ArenaMasterNPCBuilder] Model '" .. CFG.NPC_MODEL_NAME .. "' not found — skipping build")
+		return nil
+	end
+
+	-- Ждём HumanoidRootPart (Rojo может создать модель раньше детей)
+	local hrp = model:WaitForChild("HumanoidRootPart", 10)
+	if not hrp then
+		warn("[ArenaMasterNPCBuilder] HumanoidRootPart not found in model — skipping build")
+		return nil
+	end
+
 	return model
 end
 
@@ -399,9 +426,11 @@ local function buildSensei(model)
 	local auraEmitter          = Instance.new("ParticleEmitter")
 	auraEmitter.Name           = "RedAuraEmitter"
 	auraEmitter.Color          = ColorSequence.new(COL.RedGlow, COL.RedAura)
+	-- BUG-3.3 FIX: Увеличены размеры частиц для объёмной 3D ауры
+	-- (было 0.2→0.8→0, стало 0.5→1.8→0 — более заметно)
 	auraEmitter.Size           = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.2),
-		NumberSequenceKeypoint.new(0.5, 0.8),
+		NumberSequenceKeypoint.new(0, 0.5),
+		NumberSequenceKeypoint.new(0.5, 1.8),
 		NumberSequenceKeypoint.new(1, 0),
 	})
 	auraEmitter.Transparency   = NumberSequence.new({
@@ -590,9 +619,14 @@ local Builder = {}
 _G.ArenaMasterNPCBuilder = Builder
 
 task.spawn(function()
+	-- BUG-3.2 FIX: waitForModel теперь возвращает nil вместо error
 	local ok, model = pcall(waitForModel)
 	if not ok then
-		warn("[ArenaMasterNPCBuilder] " .. tostring(model))
+		warn("[ArenaMasterNPCBuilder] pcall error: " .. tostring(model))
+		return
+	end
+	if not model then
+		warn("[ArenaMasterNPCBuilder] Model not available — NPC will not be built.")
 		return
 	end
 

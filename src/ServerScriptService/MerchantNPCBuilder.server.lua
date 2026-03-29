@@ -80,19 +80,38 @@ end
 -- WAIT FOR TRADER MODEL
 -- ============================================================
 
+-- BUG-3.2 FIX: Увеличены таймауты и добавлен retry-цикл (аналог ArenaMasterNPCBuilder)
 local function waitForTrader()
-	local lobby = workspace:WaitForChild("Lobby", 30)
+	local lobby
+	for attempt = 1, 20 do
+		lobby = workspace:FindFirstChild("Lobby")
+		if lobby then break end
+		warn("[MerchantNPCBuilder] Waiting for workspace.Lobby... attempt " .. attempt)
+		task.wait(2)
+	end
 	if not lobby then
-		error("[MerchantNPCBuilder] workspace.Lobby not found within 30s")
+		warn("[MerchantNPCBuilder] workspace.Lobby not found after 40s — skipping build")
+		return nil
 	end
-	local npcs = lobby:WaitForChild("NPCs", 10)
+
+	local npcs = lobby:WaitForChild("NPCs", 15)
 	if not npcs then
-		error("[MerchantNPCBuilder] workspace.Lobby.NPCs not found")
+		warn("[MerchantNPCBuilder] workspace.Lobby.NPCs not found — skipping build")
+		return nil
 	end
-	local model = npcs:WaitForChild(CFG.NPC_MODEL_NAME, 10)
+
+	local model = npcs:WaitForChild(CFG.NPC_MODEL_NAME, 15)
 	if not model then
-		error("[MerchantNPCBuilder] Trader model not found in NPCs folder")
+		warn("[MerchantNPCBuilder] Trader model not found — skipping build")
+		return nil
 	end
+
+	local hrp = model:WaitForChild("HumanoidRootPart", 10)
+	if not hrp then
+		warn("[MerchantNPCBuilder] HumanoidRootPart not found in model — skipping build")
+		return nil
+	end
+
 	return model
 end
 
@@ -639,9 +658,14 @@ local Builder = {}
 _G.MerchantNPCBuilder = Builder
 
 task.spawn(function()
+	-- BUG-3.2 FIX: waitForTrader теперь возвращает nil вместо error
 	local ok, model = pcall(waitForTrader)
 	if not ok then
-		warn("[MerchantNPCBuilder] " .. tostring(model))
+		warn("[MerchantNPCBuilder] pcall error: " .. tostring(model))
+		return
+	end
+	if not model then
+		warn("[MerchantNPCBuilder] Model not available — NPC will not be built.")
 		return
 	end
 

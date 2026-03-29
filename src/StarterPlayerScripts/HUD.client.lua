@@ -652,15 +652,34 @@ rRoundState.OnClientEvent:Connect(function(phase)
 		timerFrame.Visible    = true
 		currencyPanel.Visible = true
 		currentStyleRank      = "D"
+
+		-- BUG-2.3 FIX: Скрываем respawnOverlay при переходе в бой
+		-- (мог остаться от предыдущего раунда)
+		respawnOverlay.Visible = false
+
 	elseif phase == "Conclusion" then
 		inMatch = false
 		timerFrame.Visible = false
 		hideStyleWidget()
+
+		-- BUG-2.3 FIX: Немедленно скрываем респавн-оверлей и
+		-- сбрасываем death-экран при завершении раунда
+		respawnOverlay.Visible = false
+
 		task.delay(1.5, function()
 			combatHUD.Visible = false
 		end)
+
 	elseif phase == "Preparation" then
+		-- BUG-2.1 FIX: Показываем combat HUD уже во время подготовки,
+		-- чтобы игрок видел свой HP бар и ульт-заряд с самого начала.
+		inMatch               = true
+		combatHUD.Visible     = true
 		currencyPanel.Visible = true
+		currentStyleRank      = "D"
+
+		-- BUG-2.3 FIX: Чистим остатки предыдущего матча
+		respawnOverlay.Visible = false
 	end
 end)
 
@@ -669,6 +688,18 @@ rRoundStart.OnClientEvent:Connect(function()
 	currentStyleRank = "D"
 	hideStyleWidget()
 	styleFrame.Visible = false
+
+	-- SAFETY: Если RoundStateChanged("Preparation") не дошёл,
+	-- всё равно показываем combatHUD через 1 секунду после RoundStart.
+	task.delay(1, function()
+		if not combatHUD.Visible then
+			print("[HUD] Safety: forcing combatHUD visible after RoundStart")
+			inMatch               = true
+			combatHUD.Visible     = true
+			currencyPanel.Visible = true
+			respawnOverlay.Visible = false
+		end
+	end)
 end)
 
 rRoundEnd.OnClientEvent:Connect(function(resultData)
@@ -728,6 +759,20 @@ rUpdateHUD.OnClientEvent:Connect(function(data)
 	end
 	if data.rank ~= nil then
 		-- Обновляем индикатор ранга в UI (можно дополнить)
+	end
+
+	-- SAFETY: UpdateHUD с timer-данными = мы в бою.
+	-- Форсируем видимость таймера и HUD.
+	if data.timer ~= nil then
+		timerFrame.Visible = true
+		local mins = math.floor(data.timer / 60)
+		local secs = data.timer % 60
+		timerLabel.Text = string.format("%d:%02d", mins, secs)
+		-- Если HUD ещё не включён — включаем
+		if not combatHUD.Visible then
+			inMatch           = true
+			combatHUD.Visible = true
+		end
 	end
 
 	-- Показываем панель если данные пришли
@@ -889,6 +934,25 @@ rRankUpdate.OnClientEvent:Connect(function(oldRank, newRank, newRP)
 		end)
 	end
 end)
+
+-- ============================================================
+-- BUG-2.3 FIX: ReturnToLobby — полный сброс HUD при возврате
+-- Гарантирует что respawnOverlay, combatHUD и таймер скрыты.
+-- ============================================================
+
+local rReturnToLobby = Remotes:FindFirstChild("ReturnToLobby")
+	or Remotes:WaitForChild("ReturnToLobby", 10)
+if rReturnToLobby then
+	rReturnToLobby.OnClientEvent:Connect(function()
+		inMatch               = false
+		combatHUD.Visible     = false
+		timerFrame.Visible    = false
+		respawnOverlay.Visible = false
+		hideStyleWidget()
+		styleFrame.Visible    = false
+		currentStyleRank      = "D"
+	end)
+end
 
 -- ============================================================
 -- ФИНАЛЬНАЯ ИНИЦИАЛИЗАЦИЯ

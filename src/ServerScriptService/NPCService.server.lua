@@ -134,6 +134,13 @@ local function setupNPC(npcModel)
 			npcModel.Name))
 	end
 
+	-- --------------------------------------------------------
+	-- BUG-1.2 FIX: HumanoidRootPart по умолчанию видим (серый блок).
+	-- Скрываем его — визуал NPC создаётся Builder'ом.
+	-- --------------------------------------------------------
+	hrp.Transparency = 1
+	hrp.CanCollide   = false
+
 	-- Удаляем старый ProximityPrompt (хот-релоад)
 	local old = hrp:FindFirstChildOfClass("ProximityPrompt")
 	if old then old:Destroy() end
@@ -147,31 +154,73 @@ local function setupNPC(npcModel)
 	prompt.RequiresLineOfSight   = false
 	prompt.Parent                = hrp
 
+	-- --------------------------------------------------------
+	-- BUG-1.1 FIX: Запрещаем автоматический тригер ProximityPrompt
+	-- в первые 3 секунды после спавна игрока. Без этого промпт
+	-- мог стрелять сразу при загрузке персонажа, если спавн слишком
+	-- близко к NPC или CharacterAdded прилетал раньше PivotTo.
+	-- --------------------------------------------------------
+	prompt.Enabled = false
+	task.delay(3, function()
+		if prompt and prompt.Parent then
+			prompt.Enabled = true
+		end
+	end)
+
 	-- Billboard над головой
+	-- BUG-4.1 FIX: Не создаём дублирующий NPCNameTag если Builder
+	-- уже создал BillboardGui (ArenaMasterNPCBuilder / MerchantNPCBuilder).
+	-- Проверяем все BillboardGui в модели — если есть любой с текстом, пропускаем.
 	local existing = npcModel:FindFirstChild("NPCNameTag")
 	if existing then existing:Destroy() end
 
-	local bb         = Instance.new("BillboardGui")
-	bb.Name          = "NPCNameTag"
-	bb.Size          = UDim2.new(0, 200, 0, 46)
-	bb.StudsOffset   = Vector3.new(0, 3.2, 0)
-	bb.AlwaysOnTop   = false
-	bb.Adornee       = hrp
-	bb.Parent        = npcModel
+	-- Ждём 2 секунды — Builder мог ещё не отработать
+	task.delay(2, function()
+		if not npcModel or not npcModel.Parent then return end
+		-- Если Builder уже создал BillboardGui, не дублируем
+		for _, child in ipairs(npcModel:GetDescendants()) do
+			if child:IsA("BillboardGui") and child.Name ~= "NPCNameTag" then
+				-- Builder уже создал свой billboard — не нужен наш
+				local existingTag = npcModel:FindFirstChild("NPCNameTag")
+				if existingTag then existingTag:Destroy() end
+				return
+			end
+		end
 
-	local lbl                    = Instance.new("TextLabel")
-	lbl.Size                     = UDim2.new(1, 0, 1, 0)
-	lbl.BackgroundTransparency   = 1
-	lbl.Text                     = cfg.objectText
-	lbl.TextColor3               = cfg.nameColor or Color3.fromRGB(255, 220, 80)
-	lbl.TextStrokeTransparency   = 0
-	lbl.TextStrokeColor3         = Color3.new(0, 0, 0)
-	lbl.Font                     = Enum.Font.GothamBold
-	lbl.TextScaled               = true
-	lbl.Parent                   = bb
+		-- Builder не создал billboard — создаём стандартный
+		local existingTag = npcModel:FindFirstChild("NPCNameTag")
+		if existingTag then return end  -- уже создан ранее (хот-релоад)
+
+		local bb         = Instance.new("BillboardGui")
+		bb.Name          = "NPCNameTag"
+		bb.Size          = UDim2.new(0, 200, 0, 46)
+		bb.StudsOffset   = Vector3.new(0, 3.2, 0)
+		bb.AlwaysOnTop   = false
+		bb.Adornee       = hrp
+		bb.Parent        = npcModel
+
+		local lbl                    = Instance.new("TextLabel")
+		lbl.Size                     = UDim2.new(1, 0, 1, 0)
+		lbl.BackgroundTransparency   = 1
+		lbl.Text                     = cfg.objectText
+		lbl.TextColor3               = cfg.nameColor or Color3.fromRGB(255, 220, 80)
+		lbl.TextStrokeTransparency   = 0
+		lbl.TextStrokeColor3         = Color3.new(0, 0, 0)
+		lbl.Font                     = Enum.Font.GothamBold
+		lbl.TextScaled               = true
+		lbl.Parent                   = bb
+	end)
 
 	-- Триггер
+	-- BUG-1.1 FIX: Добавляем debounce на 1.5 секунды между тригерами
+	-- одного и того же игрока, чтобы избежать двойного открытия меню.
+	local triggerDebounce = {}
 	prompt.Triggered:Connect(function(player)
+		local uid = player.UserId
+		if triggerDebounce[uid] then return end
+		triggerDebounce[uid] = true
+		task.delay(1.5, function() triggerDebounce[uid] = nil end)
+
 		local ok, err = pcall(cfg.onTrigger, player)
 		if not ok then
 			warn(string.format("[NPCService] onTrigger error '%s': %s", npcModel.Name, tostring(err)))

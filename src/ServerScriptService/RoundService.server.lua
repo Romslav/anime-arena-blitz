@@ -40,6 +40,83 @@ local PHASE_DURATIONS = {
 local COUNTDOWN_NOTIFICATIONS = { 10, 5, 3, 2, 1 }
 
 -- ============================================================
+-- АРЕНА: Изолированная зона далеко от лобби.
+-- Координаты Y=5, Z=-5000 — недоступно пешком из лобби.
+-- Пол арены создаётся программно при первом запуске.
+-- ============================================================
+
+local ARENA_CENTER = Vector3.new(0, 5, -5000)
+
+local ARENA_SPAWN_POSITIONS = {
+	-- Позиция #1: левый боец (лицом к правому)
+	CFrame.lookAt(ARENA_CENTER + Vector3.new(-15, 0, 0), ARENA_CENTER + Vector3.new(15, 0, 0)),
+	-- Позиция #2: правый боец (лицом к левому)
+	CFrame.lookAt(ARENA_CENTER + Vector3.new( 15, 0, 0), ARENA_CENTER + Vector3.new(-15, 0, 0)),
+}
+
+-- Создаём пол арены один раз при первом использовании
+local arenaCreated = false
+local function ensureArenaExists()
+	if arenaCreated then return end
+	arenaCreated = true
+
+	local floor = Instance.new("Part")
+	floor.Name         = "ArenaFloor"
+	floor.Size         = Vector3.new(80, 1, 80)
+	floor.Position     = ARENA_CENTER - Vector3.new(0, 2, 0) -- чуть ниже спавна
+	floor.Anchored     = true
+	floor.CanCollide   = true
+	floor.Color        = Color3.fromRGB(20, 20, 30)
+	floor.Material     = Enum.Material.SmoothPlastic
+	floor.TopSurface   = Enum.SurfaceType.Smooth
+	floor.BottomSurface = Enum.SurfaceType.Smooth
+	floor.CastShadow   = false
+	floor.Parent       = workspace
+
+	-- Невидимые стены (барьеры) чтобы не улететь с арены
+	for _, data in ipairs({
+		{Vector3.new(80, 20, 1), Vector3.new(0, 8, 40)},
+		{Vector3.new(80, 20, 1), Vector3.new(0, 8, -40)},
+		{Vector3.new(1, 20, 80), Vector3.new(40, 8, 0)},
+		{Vector3.new(1, 20, 80), Vector3.new(-40, 8, 0)},
+	}) do
+		local wall = Instance.new("Part")
+		wall.Size         = data[1]
+		wall.Position     = ARENA_CENTER + data[2] - Vector3.new(0, 2, 0)
+		wall.Anchored     = true
+		wall.CanCollide   = true
+		wall.Transparency = 1
+		wall.Parent       = workspace
+	end
+
+	print("[RoundService] Arena created at Z=-5000 with barriers")
+end
+
+--- Телепортировать участников раунда на арену
+local function teleportToArena(round)
+	ensureArenaExists()
+
+	for i, p in ipairs(round.players) do
+		local isBotPlayer = type(p) == "table" and p._isBot
+		if isBotPlayer then
+			-- Бот: телепортируем через TestBot API
+			if _G.TestBot and _G.TestBot.teleport then
+				local cf = ARENA_SPAWN_POSITIONS[i] or ARENA_SPAWN_POSITIONS[1]
+				pcall(_G.TestBot.teleport, cf)
+			end
+		elseif p and p.Parent then
+			local char = p.Character
+			local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				local cf = ARENA_SPAWN_POSITIONS[i] or ARENA_SPAWN_POSITIONS[1]
+				hrp.CFrame = cf
+				print(string.format("[RoundService] Teleported %s to Arena pos #%d (Z=-5000)", p.Name, i))
+			end
+		end
+	end
+end
+
+-- ============================================================
 -- STATE
 -- ============================================================
 
@@ -172,6 +249,13 @@ end
 local function runPreparation(round)
 	round.phase = PHASE.PREPARATION
 	local duration = PHASE_DURATIONS.Preparation
+
+	-- ================================================================
+	-- BUG-1.3 FIX: Телепортируем участников НА АРЕНУ перед боем.
+	-- Бои больше не происходят в лобби — выделенная зона.
+	-- ================================================================
+	teleportToArena(round)
+	task.wait(0.3)  -- дать физике осесть после телепорта
 
 	-- ================================================================
 	-- ИСПРАВЛЕНИЕ #1: Отправляем RoundStart (интро "VS") ЗДЕСЬ, в начале
@@ -767,12 +851,5 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	RoundService.ForfeitPlayer(player.UserId)
 end)
-
--- ============================================================
--- LOBBY REMOTES
--- ============================================================
-
--- ReturnToLobby: клиентский ивент для анимации возврата в лобби
-local ReturnToLobby = Remotes:WaitForChild("ReturnToLobby", 10)
 
 print("[RoundService] Initialized ✓ — Phase system: Waiting → Preparation → Battle → Conclusion")
