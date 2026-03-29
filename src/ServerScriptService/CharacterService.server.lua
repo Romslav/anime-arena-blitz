@@ -183,12 +183,65 @@ function CharacterService.ApplyStats(character, heroData)
 		hum.WalkSpeed = heroData.speed or 16
 	end
 
-	local tag = character:FindFirstChild("HeroTag")
-	if not tag then
-		tag        = Instance.new("StringValue")
-		tag.Name   = "HeroTag"
-		tag.Parent = character
+	-- Проверяем, что это наш Ронин
+	if heroData.id == "FlameRonin" or heroData.id == "flame_ronin" then
+		-- 1. Настройка головы (горизонтальный овал "дыня")
+		local head = character:FindFirstChild("Head")
+		if head then
+			local mesh = head:FindFirstChildOfClass("SpecialMesh")
+			if mesh then
+				-- Сплющиваем по вертикали (Y) и расширяем по бокам (X)
+				mesh.Scale = Vector3.new(1.6, 0.85, 1.1)
+			end
+
+			-- 2. Лицо (Глаза с корейским разрезом)
+			-- Можешь заменить этот ID на любой другой из библиотеки
+			local face = head:FindFirstChild("face")
+			if face then
+				face.Texture = "rbxassetid://15411700445" -- Пример ID узких глаз
+			end
+		end
+
+		-- 3. Цвет кожи (Светлый)
+		for _, part in ipairs(character:GetChildren()) do
+			if part:IsA("BasePart") then
+				part.Color = Color3.fromRGB(255, 235, 215)
+			end
+		end
+
+		-- 4. Одежда (Кимоно)
+		local shirt = character:FindFirstChildOfClass("Shirt") or Instance.new("Shirt", character)
+		shirt.ShirtTemplate = "rbxassetid://14522430554" -- ID синего кимоно
+
+		local pants = character:FindFirstChildOfClass("Pants") or Instance.new("Pants", character)
+		pants.PantsTemplate = "rbxassetid://14522431713"
+
+		-- 5. Удаляем старые волосы/аксессуары
+		for _, item in ipairs(character:GetChildren()) do
+			if item:IsA("Accessory") then
+				item:Destroy()
+			end
+		end
+
+		-- 6. Надеваем твои новые волосы и катану из папки
+		local roninAssets = ReplicatedStorage:FindFirstChild("RoninAssets")
+		if roninAssets and hum then
+			for _, asset in ipairs(roninAssets:GetChildren()) do
+				local clone = asset:Clone()
+				if clone:IsA("Accessory") then
+					hum:AddAccessory(clone)
+				elseif clone:IsA("Model") then
+					-- Если катана - модель, пробуем найти способ её закрепить
+					-- (лучше переведи её в Accessory в студии)
+					clone.Parent = character
+				end
+			end
+		end
 	end
+
+	-- Стандартный тег героя
+	local tag = character:FindFirstChild("HeroTag") or Instance.new("StringValue", character)
+	tag.Name = "HeroTag"
 	tag.Value = heroData.id
 end
 
