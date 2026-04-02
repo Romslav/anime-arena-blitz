@@ -10,7 +10,30 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
-local VFXManager = require(script.Parent.VFXManager)
+local function resolveVFXManagerModule(parent)
+	local direct = parent:FindFirstChild("VFXManager")
+	if direct and direct:IsA("ModuleScript") then
+		return direct
+	end
+	local alt = parent:FindFirstChild("VFXManager.lua")
+	if alt and alt:IsA("ModuleScript") then
+		return alt
+	end
+	for _, child in ipairs(parent:GetChildren()) do
+		if child:IsA("ModuleScript") and string.find(string.lower(child.Name), "vfxmanager", 1, true) then
+			return child
+		end
+	end
+	return nil
+end
+
+local vfxModule = resolveVFXManagerModule(script.Parent)
+if not vfxModule then
+	warn("[SkillVFXController] VFXManager ModuleScript not found; controller disabled")
+	return
+end
+
+local VFXManager = require(vfxModule)
 
 -- Единственный источник цветов — берём из VFXManager, не дублируем
 local HERO_COLOR = VFXManager.HERO_COLOR

@@ -46,8 +46,30 @@ _G.ClientState = ClientState
 
 local VFXManager
 task.defer(function()
-	-- VFXManager — LocalScript Module в той же папке
-	local ok, m = pcall(require, script.Parent:WaitForChild("VFXManager", 8))
+	local function resolveVFXManagerModule(parent)
+		local direct = parent:FindFirstChild("VFXManager")
+		if direct and direct:IsA("ModuleScript") then
+			return direct
+		end
+		local alt = parent:FindFirstChild("VFXManager.lua")
+		if alt and alt:IsA("ModuleScript") then
+			return alt
+		end
+		for _, child in ipairs(parent:GetChildren()) do
+			if child:IsA("ModuleScript") and string.find(string.lower(child.Name), "vfxmanager", 1, true) then
+				return child
+			end
+		end
+		return nil
+	end
+
+	local moduleScript = resolveVFXManagerModule(script.Parent)
+	if not moduleScript then
+		warn("[ClientManager] VFXManager ModuleScript not found")
+		return
+	end
+
+	local ok, m = pcall(require, moduleScript)
 	if ok then
 		VFXManager = m
 		print("[ClientManager] VFXManager loaded")
